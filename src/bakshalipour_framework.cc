@@ -1,5 +1,6 @@
 #include "bakshalipour_framework.h"
 
+
 /**
 * A very simple and efficient hash function that:
 * 1) Splits key into blocks of length `index_len` bits and computes the XOR of all blocks.

@@ -4,6 +4,7 @@
 #include "champsim.h"
 #include "cache.h"
 #include "dram_controller.h"
+#include <cstdint>
 //#include "drc_controller.h"
 
 //#define DRC_MSHR_SIZE 48

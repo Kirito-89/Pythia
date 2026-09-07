@@ -10,7 +10,7 @@ Biswabandan Panda - biswap@cse.iitk.ac.in
 #include "cache.h"
 #include "prefetcher.h"
 #include "ipcp_vars.h"
-
+#include <cstdint>
 class IP_TABLE_L1
 {
   public:

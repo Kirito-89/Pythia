@@ -3,7 +3,7 @@
 
 #include "champsim.h"
 #include "block.h"
-
+#include <cstdint>
 // CACHE ACCESS TYPE
 #define LOAD      0
 #define RFO       1

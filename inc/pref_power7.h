@@ -4,6 +4,7 @@
 #include "prefetcher.h"
 #include "streamer.h"
 #include "stride.h"
+#include <cstdint>
 #include "cache.h"
 using namespace std;
 

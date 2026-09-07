@@ -5,6 +5,7 @@
 #include <deque>
 #include "bitmap.h"
 #include "prefetcher.h"
+#include <cstdint>
 
 using namespace std;
 

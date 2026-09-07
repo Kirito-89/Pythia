@@ -5,7 +5,7 @@
 #include <string.h>
 #include "prefetcher.h"
 #include "learning_engine_base.h"
-
+#include <cstdint>
 #define MAX_ACTIONS 64
 
 /*

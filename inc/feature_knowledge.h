@@ -4,7 +4,7 @@
 #include <string>
 #include "scooby_helper.h"
 #define FK_MAX_TILINGS 32
-
+#include <cstdint>
 typedef enum
 {
 	F_PC = 0,								// 0

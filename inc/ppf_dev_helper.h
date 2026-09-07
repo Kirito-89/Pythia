@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <cmath>
 #include "cache.h"
+#include <cstdint>
 
 using namespace std;
 

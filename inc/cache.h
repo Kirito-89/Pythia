@@ -1,6 +1,6 @@
 #ifndef CACHE_H
 #define CACHE_H
-
+#include <cstdint>
 #include "memory_class.h"
 #include "prefetcher.h"
 

@@ -3,6 +3,7 @@
 
 #include <deque>
 #include "prefetcher.h"
+#include <cstdint>
 using namespace std;
 
 class Stream_Tracker

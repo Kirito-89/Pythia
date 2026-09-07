@@ -3,6 +3,7 @@
 
 #include <deque>
 #include <random>
+#include <cstdint>
 #include "prefetcher.h"
 using namespace std;
 

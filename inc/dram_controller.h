@@ -2,7 +2,7 @@
 #define DRAM_H
 
 #include "memory_class.h"
-
+#include <cstdint>
 // DRAM configuration
 #define DRAM_CHANNEL_WIDTH 8 // 8B
 #define DRAM_WQ_SIZE 64

@@ -12,7 +12,7 @@
 #include "prefetcher.h"
 #include "cache.h"
 #include "bakshalipour_framework.h"
-
+#include <cstdint>
 /**
  * The access map table records blocks as being in one of 3 general states:
  * ACCESS, PREFETCH, or INIT.

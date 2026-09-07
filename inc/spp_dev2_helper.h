@@ -2,7 +2,7 @@
 #define SPP_DEV2_HELPER_H
 
 //namespace spp{
-
+#include <cstdint>
 // SPP functional knobs
 #define LOOKAHEAD_ON
 #define FILTER_ON

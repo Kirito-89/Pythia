@@ -4,6 +4,7 @@
 #include "champsim.h"
 #include "instruction.h"
 #include "set.h"
+#include <cstdint>
 
 // CACHE BLOCK
 class BLOCK {

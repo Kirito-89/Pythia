@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
-
+#include <cstdint>
 #define TYPE	unsigned short int
 //#define MAX_SIZE	ROB_SIZE
 // sethpugsley - changed this from ROB_SIZE to allow for non-power-of-2 ROB sizes, like real CPUs have

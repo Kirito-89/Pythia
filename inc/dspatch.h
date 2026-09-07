@@ -6,7 +6,7 @@
 #include <limits.h>
 #include "bitmap.h"
 #include "prefetcher.h"
-
+#include <cstdint>
 #define DSPATCH_MAX_BW_LEVEL 4
 
 enum DSPatch_pref_candidate

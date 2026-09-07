@@ -4,7 +4,7 @@
 #include "prefetcher.h"
 #include "ppf_dev_helper.h"
 #include "cache.h"
-
+#include <cstdint>
 using namespace spp_ppf;
 
 /* SPP+PPF imnplementation */

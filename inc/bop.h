@@ -4,6 +4,7 @@
 #include <vector>
 #include <deque>
 #include "prefetcher.h"
+#include <cstdint>
 using namespace std;
 
 class BOPrefetcher : public Prefetcher

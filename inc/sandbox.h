@@ -5,6 +5,7 @@
 #include <deque>
 #include "prefetcher.h"
 #include "bf/all.hpp"
+#include <cstdint>
 using namespace std;
 
 class Score

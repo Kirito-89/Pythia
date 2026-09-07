@@ -2,7 +2,7 @@
 #define LEARNING_ENGINE_BASE_H
 
 #include "prefetcher.h"
-
+#include <cstdint>
 #define MAX_ACTIONS 64
 
 enum Policy

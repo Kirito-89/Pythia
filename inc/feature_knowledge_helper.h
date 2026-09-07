@@ -2,7 +2,7 @@
 #define FEATURE_KNOWLEDGE_HELPER_H
 
 #include "util.h"
-
+#include <cstdint>
 #define DELTA_BITS 7
 
 const uint32_t tiling_offset[] = {	0xaca081b9,0x666a1c67,0xc11d6a53,0x8e5d97c1,0x0d1cad54,0x874f71cb,0x20d2fa13,0x73f7c4a7,

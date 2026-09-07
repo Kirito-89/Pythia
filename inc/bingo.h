@@ -11,6 +11,7 @@
 #include "prefetcher.h"
 #include "cache.h"
 #include "bakshalipour_framework.h"
+#include <cstdint>
 
 using namespace std;
 

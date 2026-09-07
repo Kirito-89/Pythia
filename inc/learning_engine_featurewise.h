@@ -4,7 +4,7 @@
 #include <random>
 #include "learning_engine_base.h"
 #include "feature_knowledge.h"
-
+#include <cstdint>
 class LearningEngineFeaturewise : public LearningEngineBase
 {
 private:

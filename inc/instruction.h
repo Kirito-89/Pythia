@@ -11,7 +11,7 @@
 #define NUM_INSTR_SOURCES 4
 
 #include "set.h"
-
+#include <cstdint>
 class input_instr {
   public:
 

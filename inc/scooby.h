@@ -9,7 +9,7 @@
 #include "scooby_helper.h"
 #include "learning_engine_basic.h"
 #include "learning_engine_featurewise.h"
-
+#include <cstdint>
 using namespace std;
 
 #define MAX_ACTIONS 64

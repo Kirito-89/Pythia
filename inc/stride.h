@@ -4,7 +4,7 @@
 #include <deque>
 #include <vector>
 #include "prefetcher.h"
-
+#include <cstdint>
 using namespace std;
 
 class Tracker

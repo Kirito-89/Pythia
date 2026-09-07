@@ -5,6 +5,7 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <cstdint>
 
 void gen_random(char *s, const int len);
 uint32_t folded_xor(uint64_t value, uint32_t num_folds);
