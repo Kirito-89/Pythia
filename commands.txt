@@ -1,0 +1,17 @@
+cd /home/adamya/Documents/Semester7/ACA/f_project/Pythia
+
+export PIN_ROOT=/home/adamya/Documents/Semester7/ACA/f_project/pin-external-4.3-99850-gce5652921-gcc-linux
+
+rm -f attacks/attacker.trace
+
+"$PIN_ROOT/pin" \
+  -t tracer/obj-intel64/champsim_tracer.so \
+  -o attacks/attacker.trace \
+  -s 0 \
+  -t 1000000 \
+  -- ./attacks/attacker
+
+
+
+
+  ./build_champsim.sh no no no 1  build no prefetcher version

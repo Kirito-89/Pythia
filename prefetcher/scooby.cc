@@ -718,7 +718,9 @@ int32_t Scooby::compute_reward(Scooby_PTEntry *ptentry, RewardType type)
 {
 	bool high_bw = (knob::scooby_enable_hbw_reward && is_high_bw()) ? true : false;
 	int32_t reward = 0;
-
+	if (high_bw) {
+    std::cout << "DEBUG_POISON: High-BW reward table triggered!" << std::endl;
+}
 	stats.reward.compute_reward.dist[type][high_bw]++;
 
 	if(type == RewardType::correct_timely)
@@ -758,6 +760,19 @@ void Scooby::train(Scooby_PTEntry *curr_evicted, Scooby_PTEntry *last_evicted)
 {
 	MYLOG("victim %s %u %d last_victim %s %u %d", curr_evicted->state->to_string().c_str(), curr_evicted->action_index, Actions[curr_evicted->action_index],
 												last_evicted->state->to_string().c_str(), last_evicted->action_index, Actions[last_evicted->action_index]);
+
+
+
+		// Inside Scooby::train()
+static uint64_t train_calls = 0;
+train_calls++;
+if (train_calls % 5000 == 0) {
+    int action_value = Actions[last_evicted->action_index];
+    // Notice we dropped core_ipc here
+    std::cout << "CSV_ACTION," << train_calls << "," << (int)bw_level << "," << action_value << std::endl;
+}
+
+
 
 	stats.train.called++;
 	if(!last_evicted->has_reward)

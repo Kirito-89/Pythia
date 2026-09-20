@@ -1,0 +1,249 @@
+\documentclass[11pt]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{hyperref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\newcommand{\M}{\mathcal{M}}
+\newcommand{\E}{\mathcal{E}}
+\newcommand{\A}{\mathcal{A}}
+\newcommand{\U}{\mathcal{U}}
+\newcommand{\Sspace}{\mathcal{S}}
+\newcommand{\Bspace}{\mathcal{B}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Eexp}{\mathbb{E}}
+\newcommand{\KL}{D_{\mathrm{KL}}}
+\newcommand{\TV}{D_{\mathrm{TV}}}
+\newcommand{\piopt}{\pi^{\star}}
+\newcommand{\pihat}{\widetilde{\pi}}
+\newcommand{\pitar}{\pi^{\dagger}}
+
+\title{A Black-Box Environment-Poisoning Model for Pythia}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document formalizes an indirect reward-poisoning attack against Pythia, an online reinforcement-learning hardware prefetcher. An unprivileged process co-running on another core cannot write Pythia's reward or policy state directly. It instead generates memory traffic that changes a shared DRAM-bandwidth signal. Pythia then uses that signal to select a high-bandwidth reward table. The resulting attack is an environment-poisoning or policy-teaching problem over a coupled victim--resource system, rather than a direct reward overwrite.
+\end{abstract}
+
+\section{Scope and implementation correspondence}
+
+The victim is an online RL prefetcher. At each learning step it observes a state, selects a prefetching action, receives a delayed reward, and updates its policy. A co-running attacker generates memory requests that compete for shared DRAM resources.
+
+In the current simulator implementation, the measured bandwidth signal is quantized into four levels,
+\[
+  b_t \in \Bspace = \{0,1,2,3\}.
+\]
+The level is computed once per bandwidth-measurement epoch from the measured request load relative to the available DRAM bus capacity. The implementation uses the quartile rule
+\[
+ b_t =
+ \begin{cases}
+ 0, & q_t \leq 25,\\
+ 1, & 25 < q_t \leq 50,\\
+ 2, & 50 < q_t \leq 75,\\
+ 3, & q_t > 75,
+ \end{cases}
+\]
+where $q_t$ is the measured percentage-like utilization quantity. Thus, $b_t$ is a resource-state observation, not the configured DRAM frequency itself.
+
+Pythia selects its high-bandwidth reward table when
+\[
+ h(b_t) = \mathbf{1}\{b_t \geq \theta\},
+\]
+where $\theta$ is the configured threshold. A threshold of $4$ is unreachable under the four-level implementation; an experimental threshold such as $\theta=2$ is required to activate the branch at levels $2$ or $3$.
+
+\section{Victim MDP without the attacker}
+
+Let the nominal victim MDP be
+\[
+  \M = (\Sspace, \A, P, R_0, \gamma, \rho_0),
+\]
+where $\Sspace$ is the victim state space, $\A$ is the prefetcher action space, $P$ is the nominal transition kernel, $R_0$ is the nominal reward function, $\gamma \in [0,1)$ is the discount factor, and $\rho_0$ is the initial-state distribution.
+
+For a victim policy $\pi(a \mid s)$, its nominal value is
+\[
+  V^{\pi}_0(s_0)
+  = \Eexp_{\pi,P}\left[
+      \sum_{t=0}^{H-1} \gamma^t R_0(s_t,a_t,s_{t+1})
+      \;\middle|\;s_0
+    \right],
+\]
+with horizon $H$ possibly replaced by an infinite discounted horizon. The nominal optimal policy is
+\[
+  \piopt \in \arg\max_{\pi} J_0(\pi),
+  \qquad
+  J_0(\pi) = \Eexp_{s_0\sim\rho_0}[V^{\pi}_0(s_0)].
+\]
+
+The state should include all variables needed to make the victim dynamics Markov. In a hardware realization this may include the prefetcher's internal tables, outstanding requests, cache state, recent access history, and the current bandwidth level. If the implementation exposes only a partial observation, replace the MDP by the corresponding POMDP and write the policy as $\pi(a\mid o)$.
+
+\section{Coupled victim--resource dynamics}
+
+The attacker does not directly select a victim reward. It selects an action $u_t \in \U$ that produces memory traffic and changes a shared resource state. Let $x_t$ denote the resource state, including queue occupancy, outstanding requests, DRAM scheduling state, and any other variables needed to model bandwidth evolution. Let $w_t$ denote exogenous workload or timing noise. The coupled dynamics are
+\begin{align}
+ x_{t+1} &\sim K(\,\cdot\mid x_t,a_t,u_t,w_t),\\
+ s_{t+1} &\sim P(\,\cdot\mid s_t,a_t,x_t,u_t,w_t),\\
+ b_t &= g(x_t),
+\end{align}
+where $K$ is the shared-resource transition kernel, $P$ is the victim transition kernel under contention, and $g$ is the bandwidth measurement and quantization map. A useful reduced model is
+\[
+ b_{t+1} \sim K_B(\,\cdot\mid b_t, a_t,u_t,\xi_t),
+\]
+where $K_B$ captures persistence, measurement windows, victim traffic, attacker traffic, and stochastic scheduling.
+
+The attacker's action affects bandwidth only through this resource dynamics. In particular, the formulation
+\[
+ b_t = b_t(u_t)
+\]
+should be understood as shorthand for the causal rollout of the coupled system, not as an arbitrary instantaneous assignment.
+
+\section{Reward poisoning channel}
+
+Let $R_{\mathrm{N}}$ and $R_{\mathrm{H}}$ be Pythia's normal and high-bandwidth reward tables. The implementation-equivalent reward is
+\begin{align}
+ R_\theta(s_t,a_t,s_{t+1},b_t)
+ &= (1-h(b_t))R_{\mathrm{N}}(s_t,a_t,s_{t+1})
+    + h(b_t)R_{\mathrm{H}}(s_t,a_t,s_{t+1}),\\
+ h(b_t) &= \mathbf{1}\{b_t\geq\theta\}.
+\end{align}
+The victim therefore learns under the attacked objective
+\[
+ J_\theta(\pi;u_{0:H-1})
+ = \Eexp\left[
+   \sum_{t=0}^{H-1}\gamma^t
+   R_\theta(s_t,a_t,s_{t+1},b_t)
+ \right],
+\]
+where the expectation is over the victim policy, victim/resource transition kernels, and exogenous randomness.
+
+This is indirect environment poisoning: the attacker changes the distribution of the victim's observations, transitions, and rewards through a shared resource. It is not a direct modification of $R_{\mathrm{N}}$, the victim's memory, or its policy parameters.
+
+\section{Black-box attacker and budget}
+
+The attacker may not observe the victim's internal state or gradients. Let $o^E_t$ be its observation, for example local timing information, its own progress, or publicly observable resource feedback. The attack policy is
+\[
+ u_t \sim \mu_\phi(\,\cdot\mid o^E_{0:t}),
+\]
+which permits history dependence and partial observability. Let $c(u_t)\geq 0$ be the cost of generating action $u_t$, such as energy, executed attacker instructions, memory requests, or occupancy time. A hard budget is
+\[
+ \sum_{t=0}^{H-1} c(u_t) \leq \Lambda.
+\]
+For stochastic policies, the constraint may instead be imposed in expectation,
+\[
+ \Eexp_{\mu_\phi}\left[\sum_{t=0}^{H-1}c(u_t)\right]\leq\Lambda,
+\]
+with a high-probability or almost-sure constraint if required by the threat model.
+
+A useful constrained attacker problem is
+\[
+ \max_{\mu\in\Pi_E}
+ \quad D\!\left(\pi_{\mathrm{victim}}^{\mu},\pi_{\mathrm{ref}}\right)
+ \qquad
+ \text{subject to}\qquad
+ \Eexp\left[\sum_{t=0}^{H-1}c(u_t)\right]\leq\Lambda,
+\]
+where $\pi_{\mathrm{victim}}^{\mu}$ is the victim policy after online learning under attack policy $\mu$, and $\pi_{\mathrm{ref}}$ is an explicitly defined reference policy.
+
+\section{Attack objectives}
+
+The expression $\lVert\piopt-\pitar\rVert$ is incomplete by itself: policies are conditional distributions and require a state or observation weighting, and $\pitar$ must be specified. The following objectives are well-defined alternatives.
+
+\subsection{Policy divergence}
+
+For a target policy $\pitar$, define a state-visitation distribution $d_w(s)$, preferably the attacked or evaluation distribution. A weighted KL objective is
+\[
+ D_{\mathrm{KL}}(\pi\|\pitar;d_w)
+ = \Eexp_{s\sim d_w}\left[
+    \KL\bigl(\pi(\cdot\mid s)\,\|\,\pitar(\cdot\mid s)\bigr)
+   \right].
+\]
+For black-box action observations or deterministic policies, total variation or disagreement is often more robust:
+\begin{align}
+ D_{\mathrm{TV}}(\pi,\pitar;d_w)
+ &= \frac{1}{2}\Eexp_{s\sim d_w}
+    \left[\sum_{a\in\A}|\pi(a\mid s)-\pitar(a\mid s)|\right],\\
+ D_{\mathrm{dis}}(\pi,\pitar;d_w)
+ &= \Eexp_{s\sim d_w,a\sim\pitar(\cdot\mid s)}
+    [-\log \pi(a\mid s)].
+\end{align}
+The last expression is the cross-entropy of the learned policy relative to a target policy. It is minimized when the victim imitates the target, so an attacker maximizing it teaches the victim away from that target. If the goal is specifically to induce a degraded target, choose $\pitar=\pi^{\dagger}$ and maximize $D(\pi_{\mathrm{victim}}^{\mu},\pi^{\dagger})$.
+
+\subsection{Value degradation}
+
+If the attacker cares about performance rather than action imitation, value degradation is more direct:
+\[
+ \Delta_V(\mu)
+ = J_0(\piopt) - J_0\bigl(\pi_{\mathrm{victim}}^{\mu}\bigr).
+\]
+This evaluates the learned attacked policy under the nominal environment, avoiding the ambiguity that a lower attacked-environment reward may simply reflect the attacker's continuing interference. A relative version is
+\[
+ \Delta_{\mathrm{rel}}(\mu)
+ = 1 - \frac{J_0(\pi_{\mathrm{victim}}^{\mu})}
+              {J_0(\piopt)+\varepsilon},
+ \qquad \varepsilon>0.
+\]
+For a hardware attack, this objective can use victim IPC, weighted speedup, or another architecture metric instead of the RL reward:
+\[
+ \Delta_{\mathrm{IPC}}(\mu)
+ = \operatorname{IPC}_{\mathrm{ref}}
+   -\operatorname{IPC}_{\mathrm{victim}}^{\mu}.
+\]
+
+\subsection{Targeted constrained formulation}
+
+A complete finite-horizon formulation is therefore
+\begin{align}
+ \mu^{\star} \in \arg\max_{\mu\in\Pi_E}
+ &\quad
+ \alpha D\!\left(\pi_{\mathrm{victim}}^{\mu},\pitar\right)
+ +(1-\alpha)\Delta_V(\mu)\\
+ \text{subject to}
+ &\quad
+ \Eexp_{\mu}\left[\sum_{t=0}^{H-1}c(u_t)\right]\leq\Lambda,
+ \qquad 0\leq\alpha\leq 1.
+\end{align}
+Alternatively, use a Lagrangian relaxation,
+\[
+ \max_{\mu\in\Pi_E}
+ \;\Eexp\left[
+   \alpha D_T +(1-\alpha)\Delta_{V,T}
+   -\lambda\sum_{t=0}^{H-1}c(u_t)
+ \right],
+ \qquad \lambda\geq 0,
+\]
+where $D_T$ and $\Delta_{V,T}$ are finite-horizon estimates.
+
+\section{Threat-model assumptions and falsifiable predictions}
+
+The model assumes that the attacker can run on another core, issue memory operations, and consume shared DRAM service, but cannot modify Pythia's binary, configuration, memory, or random seed. It also assumes that attacker traffic measurably changes $b_t$ often enough to affect reward updates.
+
+The attack should be validated in stages:
+\begin{enumerate}[leftmargin=*]
+  \item Verify that the bandwidth histogram records levels $2$ or $3$ and that the threshold satisfies $\theta\leq 3$.
+  \item Verify that high-bandwidth reward updates occur, rather than inferring poisoning from an action plot alone.
+  \item Evaluate the learned policy under the same nominal workload without the attacker to measure policy or value degradation.
+  \item Compare against a no-attacker control with identical seeds, warmup, simulation length, and trace placement.
+\end{enumerate}
+
+The attack is successful only if the attacker changes the victim's learning trajectory or nominal evaluation performance under the stated budget. A high bandwidth level by itself demonstrates resource contention, not reward poisoning.
+
+\section{Conclusion}
+
+The rigorous abstraction is a constrained black-box control problem over a coupled victim--resource environment. The attacker does not directly set $\widetilde{R}$; it selects resource actions that alter the bandwidth state, which gates Pythia's reward table. The budget-constrained objective should use a state-weighted policy divergence, a nominal value/performance degradation, or a clearly specified combination. The unweighted expression $\lVert\piopt-\pitar\rVert$ is therefore best treated as an informal shorthand, not the final mathematical objective.
+
+\end{document}
