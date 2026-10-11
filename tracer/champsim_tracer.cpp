@@ -36,6 +36,9 @@ typedef struct trace_instr_format {
 /* ================================================================== */
 
 UINT64 instrCount = 0;
+UINT64 writtenCount = 0;
+bool roi_active = false;
+FILE *phase_out = NULL;
 
 FILE *out;
 
@@ -57,6 +60,10 @@ KNOB<UINT64>
 
 KNOB<UINT64> KnobTraceInstructions(KNOB_MODE_WRITEONCE, "pintool", "t",
                                    "1000000", "How many instructions to trace");
+KNOB<BOOL> KnobROI(KNOB_MODE_WRITEONCE, "pintool", "roi", "0",
+                   "Trace only between PrefetchSteer ROI markers (single thread)");
+KNOB<string> KnobPhases(KNOB_MODE_WRITEONCE, "pintool", "phases", "",
+                        "CSV of ROI/phase boundaries in emitted trace records");
 
 /* ===================================================================== */
 // Utilities
@@ -82,16 +89,82 @@ INT32 Usage() {
 // Analysis routines
 /* ===================================================================== */
 
-void BeginInstruction(VOID *ip, UINT32 op_code, VOID *opstring) {
+void RecordPhase(const char *event, UINT64 phase = 0, UINT64 pulse = 0) {
+  if (phase_out && fprintf(phase_out, "%s,%llu,%llu,%llu\n", event,
+                           (unsigned long long)writtenCount,
+                           (unsigned long long)phase,
+                           (unsigned long long)pulse) < 0) {
+    cerr << "Failed to write phase log" << endl;
+    PIN_ExitProcess(1);
+  }
+}
+
+void CloseOutput(const char *reason) {
+  if (output_file_closed) return;
+  RecordPhase(reason);
+  bool failed = fclose(out) != 0;
+  output_file_closed = true;
+  if (phase_out) {
+    failed = (fclose(phase_out) != 0) || failed;
+    phase_out = NULL;
+  }
+  if (failed) {
+    cerr << "Failed to close trace output" << endl;
+    PIN_ExitProcess(1);
+  }
+}
+
+void ROIBegin() {
+  roi_active = true;
+  RecordPhase("roi_begin");
+}
+
+void ROIEnd() {
+  roi_active = false;
+  tracing_on = false;
+  CloseOutput("roi_end");
+}
+
+void Phase(ADDRINT phase, ADDRINT pulse) {
+  if (roi_active && !output_file_closed) RecordPhase("phase", phase, pulse);
+}
+
+VOID Image(IMG img, VOID *) {
+  if (!KnobROI.Value() || !IMG_IsMainExecutable(img)) return;
+  RTN begin = RTN_FindByName(img, "prefetchsteer_roi_begin");
+  RTN end = RTN_FindByName(img, "prefetchsteer_roi_end");
+  RTN phase = RTN_FindByName(img, "prefetchsteer_phase");
+  if (!RTN_Valid(begin) || !RTN_Valid(end) || !RTN_Valid(phase)) {
+    cerr << "-roi requires an unstripped PrefetchSteer executable" << endl;
+    PIN_ExitProcess(1);
+  }
+  RTN_Open(begin);
+  RTN_InsertCall(begin, IPOINT_BEFORE, (AFUNPTR)ROIBegin, IARG_END);
+  RTN_Close(begin);
+  RTN_Open(end);
+  RTN_InsertCall(end, IPOINT_BEFORE, (AFUNPTR)ROIEnd, IARG_END);
+  RTN_Close(end);
+  RTN_Open(phase);
+  RTN_InsertCall(phase, IPOINT_BEFORE, (AFUNPTR)Phase,
+                 IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                 IARG_FUNCARG_ENTRYPOINT_VALUE, 1, IARG_END);
+  RTN_Close(phase);
+}
+
+void BeginInstruction(VOID *ip, UINT32 op_code) {
+  tracing_on = false;
+  if (output_file_closed || (KnobROI.Value() && !roi_active)) return;
   instrCount++;
   // printf("[%p %u %s ", ip, opcode, (char*)opstring);
 
   if (instrCount > KnobSkipInstructions.Value()) {
     tracing_on = true;
 
-    if (instrCount >
-        (KnobTraceInstructions.Value() + KnobSkipInstructions.Value()))
+    if (instrCount - KnobSkipInstructions.Value() > KnobTraceInstructions.Value()) {
       tracing_on = false;
+      CloseOutput("trace_limit");
+      PIN_ExitApplication(0);
+    }
   }
 
   if (!tracing_on)
@@ -119,23 +192,12 @@ void EndInstruction() {
 
   // printf("\n");
 
-  if (instrCount > KnobSkipInstructions.Value()) {
-    tracing_on = true;
-
-    if (instrCount <=
-        (KnobTraceInstructions.Value() + KnobSkipInstructions.Value())) {
-      // keep tracing
-      fwrite(&curr_instr, sizeof(trace_instr_format_t), 1, out);
-    } else {
-      tracing_on = false;
-      // close down the file, we're done tracing
-      if (!output_file_closed) {
-        fclose(out);
-        output_file_closed = true;
-      }
-
-      exit(0);
+  if (tracing_on && !output_file_closed) {
+    if (fwrite(&curr_instr, sizeof(trace_instr_format_t), 1, out) != 1) {
+      cerr << "Failed to write trace" << endl;
+      PIN_ExitProcess(1);
     }
+    ++writtenCount;
   }
 }
 
@@ -346,10 +408,7 @@ VOID Instruction(INS ins, VOID *v) {
  */
 VOID Fini(INT32 code, VOID *v) {
   // close the file if it hasn't already been closed
-  if (!output_file_closed) {
-    fclose(out);
-    output_file_closed = true;
-  }
+  CloseOutput("program_end");
 }
 
 /*!
@@ -361,18 +420,38 @@ VOID Fini(INT32 code, VOID *v) {
  *                              including pin -t <toolname> -- ...
  */
 int main(int argc, char *argv[]) {
+  PIN_InitSymbols();
   // Initialize PIN library. Print help message if -h(elp) is specified
   // in the command line or the command line is invalid
   if (PIN_Init(argc, argv))
     return Usage();
 
-  const char *fileName = KnobOutputFile.Value().c_str();
-
-  out = fopen(fileName, "ab");
+  const string fileName = KnobOutputFile.Value();
+  out = fopen(fileName.c_str(), "wb");
   if (!out) {
     cout << "Couldn't open output trace file. Exiting." << endl;
     exit(1);
   }
+  if (!KnobTraceInstructions.Value()) {
+    cerr << "Trace instruction limit must be positive" << endl;
+    fclose(out);
+    return 1;
+  }
+  if (!KnobPhases.Value().empty()) {
+    if (KnobPhases.Value() == fileName) {
+      cerr << "Trace and phase log must use different paths" << endl;
+      fclose(out);
+      return 1;
+    }
+    phase_out = fopen(KnobPhases.Value().c_str(), "w");
+    if (!phase_out) {
+      cerr << "Couldn't open phase log" << endl;
+      fclose(out);
+      return 1;
+    }
+    fprintf(phase_out, "event,trace_instruction,phase,pulse\n");
+  }
+  IMG_AddInstrumentFunction(Image, 0);
 
   // Register function to be called to instrument instructions
   INS_AddInstrumentFunction(Instruction, 0);

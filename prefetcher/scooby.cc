@@ -6,6 +6,12 @@
 #include "memory_class.h"
 #include "scooby.h"
 #include "util.h"
+#include "steering.h"
+namespace knob { extern bool scooby_enable_featurewise_engine; }
+
+uint64_t Scooby::policy_fingerprint() const {
+	return knob::scooby_enable_featurewise_engine ? brain_featurewise->policy_fingerprint() : brain->policy_fingerprint();
+}
 
 #if 0
 #	define LOCKED(...) {fflush(stdout); __VA_ARGS__; fflush(stdout);}
@@ -487,6 +493,7 @@ uint32_t Scooby::predict(uint64_t base_address, uint64_t page, uint32_t offset, 
 	}
 
 	stats.predict.predicted += pref_addr.size();
+	steering::decision(owner_cpu, Actions[action_index], pref_degree, pref_addr.size());
 	MYLOG("end@%lx", base_address);
 
 	return pref_addr.size();
@@ -693,6 +700,8 @@ void Scooby::assign_reward(Scooby_PTEntry *ptentry, RewardType type)
 
 	/* compute the reward */
 	int32_t reward = compute_reward(ptentry, type);
+	steering::reward(owner_cpu, reward, static_cast<int32_t>(type),
+	                 knob::scooby_enable_hbw_reward && !steering::disable_hbw_reward(owner_cpu) && is_high_bw());
 
 	/* assign */
 	ptentry->reward = reward;
@@ -716,7 +725,7 @@ void Scooby::assign_reward(Scooby_PTEntry *ptentry, RewardType type)
 
 int32_t Scooby::compute_reward(Scooby_PTEntry *ptentry, RewardType type)
 {
-	bool high_bw = (knob::scooby_enable_hbw_reward && is_high_bw()) ? true : false;
+	bool high_bw = (knob::scooby_enable_hbw_reward && !steering::disable_hbw_reward(owner_cpu) && is_high_bw()) ? true : false;
 	int32_t reward = 0;
 	if (high_bw) {
     std::cout << "DEBUG_POISON: High-BW reward table triggered!" << std::endl;
@@ -766,7 +775,7 @@ void Scooby::train(Scooby_PTEntry *curr_evicted, Scooby_PTEntry *last_evicted)
 		// Inside Scooby::train()
 static uint64_t train_calls = 0;
 train_calls++;
-if (train_calls % 5000 == 0) {
+if (!steering::logging() && train_calls % 5000 == 0) {
     int action_value = Actions[last_evicted->action_index];
     // Notice we dropped core_ipc here
     std::cout << "CSV_ACTION," << train_calls << "," << (int)bw_level << "," << action_value << std::endl;
@@ -781,6 +790,11 @@ if (train_calls % 5000 == 0) {
 		reward(last_evicted);
 	}
 	assert(last_evicted->has_reward);
+	const bool frozen = steering::freeze_learning(owner_cpu);
+	steering::training(owner_cpu, !frozen);
+	// Keep rewards/tracker/decisions active, but freeze both Q updates and learned
+	// feature weights. Exploration, bandwidth fallback and degree heuristics remain.
+	if (frozen) return;
 
 	/* train */
 	MYLOG("===SARSA=== S1: %s A1: %u R1: %d S2: %s A2: %u", last_evicted->state->to_string().c_str(), last_evicted->action_index,

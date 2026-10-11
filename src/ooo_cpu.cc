@@ -1,5 +1,6 @@
 #include "ooo_cpu.h"
 #include "set.h"
+#include "steering.h"
 namespace knob
 {
 	extern bool knob_cloudsuite;
@@ -60,6 +61,7 @@ void O3_CPU::handle_branch()
 
         if (knob::knob_cloudsuite) {
             if (!fread(&current_cloudsuite_instr, instr_size, 1, trace_file)) {
+                steering::trace_end(cpu);
                 // reached end of file for this trace
                 cout << "*** Reached end of trace for Core: " << cpu << " Repeating trace: " << trace_string << endl; 
 
@@ -194,6 +196,7 @@ void O3_CPU::handle_branch()
 	else
 	  {
             if (!fread(&current_instr, instr_size, 1, trace_file)) {
+                steering::trace_end(cpu);
                 // reached end of file for this trace
                 cout << "*** Reached end of trace for Core: " << cpu << " Repeating trace: " << trace_string << endl; 
 

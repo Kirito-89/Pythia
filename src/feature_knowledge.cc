@@ -2,6 +2,15 @@
 #include <assert.h>
 #include "feature_knowledge.h"
 #include "feature_knowledge_helper.h"
+#include "policy_hash.h"
+
+uint64_t FeatureKnowledge::policy_fingerprint() const {
+	uint64_t hash = policy_hash_bytes(14695981039346656037ULL, &m_weight, sizeof(m_weight));
+	for (uint32_t tiling = 0; tiling < m_num_tilings; ++tiling)
+		for (uint32_t tile = 0; tile < m_num_tiles; ++tile)
+			hash = policy_hash_bytes(hash, m_qtable[tiling][tile], m_actions * sizeof(float));
+	return hash;
+}
 
 #if 0
 #	define LOCKED(...) {fflush(stdout); __VA_ARGS__; fflush(stdout);}

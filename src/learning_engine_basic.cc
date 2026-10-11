@@ -5,6 +5,14 @@
 #include <sstream>
 #include "learning_engine_basic.h"
 #include "scooby.h"
+#include "policy_hash.h"
+
+uint64_t LearningEngineBasic::policy_fingerprint() const {
+	uint64_t hash = 14695981039346656037ULL;
+	for (uint32_t state = 0; state < m_states; ++state)
+		hash = policy_hash_bytes(hash, qtable[state], m_actions * sizeof(float));
+	return hash;
+}
 // #include "velma.h"
 #include "util.h"
 

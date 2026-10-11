@@ -6,6 +6,18 @@
 #include "util.h"
 #include "learning_engine_featurewise.h"
 #include "scooby.h"
+#include "policy_hash.h"
+
+uint64_t LearningEngineFeaturewise::policy_fingerprint() const {
+	uint64_t hash = 14695981039346656037ULL;
+	for (uint32_t feature = 0; feature < NumFeatureTypes; ++feature) {
+		if (!m_feature_knowledges[feature]) continue;
+		const uint64_t value = m_feature_knowledges[feature]->policy_fingerprint();
+		hash = policy_hash_bytes(hash, &feature, sizeof(feature));
+		hash = policy_hash_bytes(hash, &value, sizeof(value));
+	}
+	return hash;
+}
 
 #if 0
 #	define LOCKED(...) {fflush(stdout); __VA_ARGS__; fflush(stdout);}

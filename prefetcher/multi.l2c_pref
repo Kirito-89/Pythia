@@ -2,6 +2,7 @@
 #include <assert.h>
 #include "cache.h"
 #include "prefetcher.h"
+#include "steering.h"
 
 /* Supported prefetchers at L2 */
 #include "sms.h"
@@ -31,6 +32,10 @@ namespace knob
 
 void CACHE::l2c_prefetcher_initialize()
 {
+	if (steering::disable_prefetch(cpu)) {
+		cout << "Core_" << cpu << "_L2_prefetch_disabled 1" << endl;
+		return;
+	}
 	for(uint32_t index = 0; index < knob::l2c_prefetcher_types.size(); ++index)
 	{
 		if(!knob::l2c_prefetcher_types[index].compare("none"))
@@ -59,6 +64,7 @@ void CACHE::l2c_prefetcher_initialize()
 		{
 			cout << "adding L2C_PREFETCHER: Scooby" << endl;
 			Scooby *pref_scooby = new Scooby(knob::l2c_prefetcher_types[index]);
+			pref_scooby->set_cpu(cpu);
 			prefetchers.push_back(pref_scooby);
 		}
 		else if(!knob::l2c_prefetcher_types[index].compare("next_line"))

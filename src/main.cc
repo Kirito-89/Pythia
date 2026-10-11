@@ -4,6 +4,7 @@
 #include "ooo_cpu.h"
 #include "uncore.h"
 #include "knobs.h"
+#include "steering.h"
 #include <fstream>
 
 #define FIXED_FLOAT(x) std::fixed << std::setprecision(5) << (x)
@@ -278,6 +279,7 @@ void finish_warmup()
         ooo_cpu[i].L2C.LATENCY  = L2C_LATENCY;
     }
     uncore.LLC.LATENCY = LLC_LATENCY;
+    steering::begin_roi();
 }
 
 void print_deadlock(uint32_t i)
@@ -817,6 +819,7 @@ int main(int argc, char** argv)
     print_knobs();
 
     // simulation entry point
+    steering::initialize();
     generator.seed(champsim_seed);
     start_time = time(NULL);
     uint8_t run_simulation = 1;
@@ -943,6 +946,7 @@ int main(int argc, char** argv)
             // simulation complete
             if ((all_warmup_complete > NUM_CPUS) && (simulation_complete[i] == 0) && (ooo_cpu[i].num_retired >= (ooo_cpu[i].begin_sim_instr + ooo_cpu[i].simulation_instructions))) {
                 simulation_complete[i] = 1;
+                steering::mark_complete(i);
                 ooo_cpu[i].finish_sim_instr = ooo_cpu[i].num_retired - ooo_cpu[i].begin_sim_instr;
                 ooo_cpu[i].finish_sim_cycle = current_core_cycle[i] - ooo_cpu[i].begin_sim_cycle;
 
@@ -959,6 +963,8 @@ int main(int argc, char** argv)
             }
 
             if (all_simulation_complete == NUM_CPUS)
+                run_simulation = 0;
+            if (steering::stop_at_victim() && simulation_complete[steering::victim_core()])
                 run_simulation = 0;
         }
 	// cout << "-----------------" << endl;
@@ -979,11 +985,27 @@ int main(int argc, char** argv)
             uncore.DRAM.next_bw_measure_cycle = uncore.cycle + knob::measure_dram_bw_epoch;
             uncore.DRAM.total_bw_epochs++;
             uncore.DRAM.bw_level_hist[uncore.DRAM.bw]++;
+            steering::bandwidth(uncore.DRAM.bw);
             uncore.LLC.broadcast_bw(uncore.DRAM.bw);
         }
 
         uncore.LLC.operate();
         uncore.DRAM.operate();
+        steering::tick();
+    }
+
+    steering::finish();
+    // With stop-at-victim, report partial measurements for the other core honestly.
+    if (steering::stop_at_victim()) {
+        for (uint32_t i = 0; i < NUM_CPUS; ++i) {
+            if (simulation_complete[i]) continue;
+            ooo_cpu[i].finish_sim_instr = ooo_cpu[i].num_retired - ooo_cpu[i].begin_sim_instr;
+            ooo_cpu[i].finish_sim_cycle = current_core_cycle[i] - ooo_cpu[i].begin_sim_cycle;
+            record_roi_stats(i, &ooo_cpu[i].L1D);
+            record_roi_stats(i, &ooo_cpu[i].L1I);
+            record_roi_stats(i, &ooo_cpu[i].L2C);
+            record_roi_stats(i, &uncore.LLC);
+        }
     }
 
     uint64_t elapsed_second = (uint64_t)(time(NULL) - start_time),
@@ -992,7 +1014,10 @@ int main(int argc, char** argv)
     elapsed_minute -= elapsed_hour*60;
     elapsed_second -= (elapsed_hour*3600 + elapsed_minute*60);
 
-    cout << endl << "ChampSim completed all CPUs" << endl;
+    if (steering::stop_at_victim())
+        cout << endl << "ChampSim completed victim CPU " << steering::victim_core() << endl;
+    else
+        cout << endl << "ChampSim completed all CPUs" << endl;
     if (NUM_CPUS > 1) {
 //         cout << endl << "Total Simulation Statistics (not including warmup)" << endl;
 //         for (uint32_t i=0; i<NUM_CPUS; i++) {
@@ -1017,6 +1042,8 @@ int main(int argc, char** argv)
             << "Core_" << i << "_cycles " << ooo_cpu[i].finish_sim_cycle << endl
             << "Core_" << i << "_IPC " << ((float) ooo_cpu[i].finish_sim_instr / ooo_cpu[i].finish_sim_cycle) << endl
             << endl;
+        if (steering::stop_at_victim())
+            cout << "Core_" << i << "_measurement_complete " << +simulation_complete[i] << endl;
 #ifndef CRC2_COMPILE
         print_branch_stats(i);
         print_roi_stats(i, &ooo_cpu[i].L1D);

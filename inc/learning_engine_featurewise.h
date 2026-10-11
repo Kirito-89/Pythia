@@ -64,6 +64,7 @@ private:
 	void plot_scores();
 
 public:
+	uint64_t policy_fingerprint() const;
 	LearningEngineFeaturewise(Prefetcher *p, float alpha, float gamma, float epsilon, uint32_t actions, uint64_t seed, std::string policy, std::string type, bool zero_init);
 	~LearningEngineFeaturewise();
 	uint32_t chooseAction(State *state, float &max_to_avg_q_ratio, vector<bool> &consensus_vec);

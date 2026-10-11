@@ -23,3 +23,7 @@ libbf/
 
 
 attacks/attacker.trace
+attacks/prefetch_steer
+attacks/generated/
+attacks/__pycache__/
+backup/

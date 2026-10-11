@@ -87,6 +87,7 @@ private:
 	void plot_scores();
 
 public:
+	uint64_t policy_fingerprint() const;
 	FeatureKnowledge(FeatureType feature_type, float alpha, float gamma, uint32_t actions, float weight, float weight_gradient, uint32_t num_tilings, uint32_t num_tiles, bool zero_init, uint32_t hash_type, int32_t enable_tiling_offset);
 	~FeatureKnowledge();
 	float retrieveQ(State *state, uint32_t action_index);

@@ -70,6 +70,7 @@ private:
 	void dump_action_trace(uint32_t action);
 
 public:
+	uint64_t policy_fingerprint() const;
 	LearningEngineBasic(Prefetcher *p, float alpha, float gamma, float epsilon, uint32_t actions, uint32_t states, uint64_t seed, std::string policy, std::string type, bool zero_init, uint64_t early_exploration_window);
 	~LearningEngineBasic();
 
@@ -79,4 +80,3 @@ public:
 };
 
 #endif /* LEARNING_ENGINE */
-

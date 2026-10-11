@@ -23,6 +23,7 @@ class LearningEngine;
 class Scooby : public Prefetcher
 {
 private:
+	uint32_t owner_cpu = 0;
 	deque<Scooby_STEntry*> signature_table;
 	LearningEngineBasic *brain;
 	LearningEngineFeaturewise *brain_featurewise;
@@ -177,6 +178,8 @@ private:
 	bool is_high_bw();
 
 public:
+	void set_cpu(uint32_t cpu) { owner_cpu = cpu; }
+	uint64_t policy_fingerprint() const;
 	Scooby(string type);
 	~Scooby();
 	void invoke_prefetcher(uint64_t pc, uint64_t address, uint8_t cache_hit, uint8_t type, vector<uint64_t> &pref_addr);
@@ -191,4 +194,3 @@ public:
 };
 
 #endif /* SCOOBY_H */
-

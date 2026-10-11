@@ -1,6 +1,6 @@
-cd /home/adamya/Documents/Semester7/ACA/f_project/Pythia
+cd /home/dheeraj-agarwal/semester_7/ACA/Pythia
 
-export PIN_ROOT=/home/adamya/Documents/Semester7/ACA/f_project/pin-external-4.3-99850-gce5652921-gcc-linux
+export PIN_ROOT=/home/dheeraj-agarwal/Downloads/pin-external-4.4-99977-g54fbb8814-gcc-linux
 
 rm -f attacks/attacker.trace
 
@@ -14,4 +14,49 @@ rm -f attacks/attacker.trace
 
 
 
-  ./build_champsim.sh no no no 1  build no prefetcher version
+# Build the one-core version without prefetching:
+./build_champsim.sh no no no 1
+
+# PrefetchSteer: scheduled attack application (run from repository root).
+make -C attacks test
+./attacks/prefetch_steer --help
+
+# Record a short smoke trace: quiet -> pressure -> quiet -> pressure -> cooldown.
+# Use a new output directory for each recording. This sample is for validation;
+# size the phases for warmup + measurement before a full simulator experiment.
+STEER_OUT="attacks/generated/stream-pulse-$(date +%Y%m%d-%H%M%S)"
+python3 attacks/generate_trace.py --output "$STEER_OUT" -- \
+  --mode stream --size-mib 128 --streams 4 --seed 1 --gap-rounds 8 \
+  --pre 100000 --on 65536 --off 100000 --pulses 2 --post 100000
+
+python3 attacks/inspect_trace.py \
+  "$STEER_OUT/attacker.trace.gz" "$STEER_OUT/phases.csv"
+
+# Full native + Pin checks (requires Pin to be allowed to attach to its child):
+PIN_ROOT="$PIN_ROOT" PREFETCHSTEER_TEST_PIN=1 python3 attacks/test_prefetch_steer.py
+
+# Modes: stream, random, chase (use --streams 1 as a latency control), quiet.
+# Sweep --gap-rounds 0/8/32/128 to adjust request density.
+# Pair victim on core 0 and attacker on core 1; see attacks/README.md.
+
+# Full steering study: exact phase windows, quiet controls, and frozen learning.
+# This uses Pin and may take several minutes; results are written under runs/.
+python3 attacks/test_steering_simulator.py
+python3 attacks/run_steering_experiment.py
+
+# Replicate the measured bwaves steering result (longer pulse and reward ablation):
+python3 attacks/run_steering_experiment.py \
+  --modes stream --on 8192 --instructions 10000000 --reward-ablation
+# Review attacks/FINDINGS.md and the new runs/steering-experiment-*/report.md.
+
+# Same-victim interval experiment: first pulse targets speedup, second slowdown.
+# Change --output to a new directory for every attempt. Examine the
+# "Requested pressure directions" table in report.md.
+python3 attacks/run_steering_experiment.py \
+  --output runs/steering-targeted-bwaves-replication \
+  --victim dpc3_traces/603.bwaves_s-2931B.champsimtrace.xz \
+  --modes stream --pulses 2 --on-sequence 1024,8192 \
+  --pulse-goals speedup,slowdown \
+  --min-speedup-pct 0.4 --min-slowdown-pct 1.0 \
+  --off 250000 --pre 250000 --post 5000000 \
+  --instructions 15000000 --warmup 100000

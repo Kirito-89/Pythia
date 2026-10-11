@@ -4,6 +4,7 @@
 #include <math.h>
 #include "knobs.h"
 #include "ini.h"
+#include "steering.h"
 using namespace std;
 
 #define MATCH(s, n) strcmp(section, s) == 0 && strcmp(name, n) == 0
@@ -317,6 +318,7 @@ void parse_config(char *config_file_name)
 
 int parse_knobs(void* user, const char* section, const char* name, const char* value)
 {
+	if (!strcmp(section, "") && steering::parse_knob(name, value)) return 1;
 	char config_file_name[MAX_LEN];
 
 	if(MATCH("", "config"))

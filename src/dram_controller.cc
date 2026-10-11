@@ -1,4 +1,5 @@
 #include "dram_controller.h"
+#include "steering.h"
 
 // initialized in main.cc
 uint32_t DRAM_MTPS, DRAM_DBUS_RETURN_TIME, DRAM_DBUS_MAX_CAS,
@@ -485,6 +486,7 @@ int MEMORY_CONTROLLER::add_rq(PACKET *packet)
 
             /* keep a track of added entries */
             rq_enqueue_count++;
+            steering::dram_request(packet->cpu);
 
 #ifdef DEBUG_PRINT
             uint32_t channel = dram_get_channel(packet->address),
