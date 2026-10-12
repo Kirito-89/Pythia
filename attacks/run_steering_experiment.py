@@ -144,6 +144,10 @@ def parser():
     result.add_argument("--streams", type=int, choices=(1, 2, 4, 8, 16), default=8)
     result.add_argument("--size-mib", type=int, default=128)
     result.add_argument("--seed", type=int, default=1)
+    result.add_argument("--gap-rounds", type=int, default=0,
+                        help="arithmetic rounds between pressure batches; zero is maximum request density")
+    result.add_argument("--trace-max-instructions", type=int, default=100_000_000,
+                        help="Pin record cap for each generated attacker trace; increase for long simulations")
     result.add_argument("--min-slowdown-pct", type=float, default=1.0,
                         help="required positive pressure-window slowdown for interval success")
     result.add_argument("--min-speedup-pct", type=float, default=1.0,
@@ -156,8 +160,8 @@ def parser():
 def main():
     cli = parser()
     args = cli.parse_args()
-    if any(getattr(args, key) <= 0 for key in ("instructions", "epoch", "on", "pulses", "post", "size_mib", "seed", "timeout_seconds")) or min(args.pre, args.off, args.warmup) < 0:
-        cli.error("instruction counts, epoch, pulse, pulses, cooldown, size, seed and timeout must be positive; pre/off/warmup nonnegative")
+    if any(getattr(args, key) <= 0 for key in ("instructions", "epoch", "on", "pulses", "post", "size_mib", "seed", "timeout_seconds", "trace_max_instructions")) or min(args.pre, args.off, args.warmup, args.gap_rounds) < 0:
+        cli.error("instruction counts, epoch, pulse, pulses, cooldown, size, seed, trace cap and timeout must be positive; pre/off/warmup/gap nonnegative")
     if args.pulses > 1 and not args.off:
         cli.error("multiple pulses require --off > 0 so a recovery interval exists")
     if args.on_sequence is not None:
@@ -205,7 +209,9 @@ def main():
             if not args.binary.is_file():
                 raise ValueError(f"simulator binary not found: {args.binary}")
             manifest["provenance"]["binary"] = {"path": str(args.binary.resolve()), "sha256": sha256(args.binary)}
-        source_paths = [ROOT / "attacks/run_steering_experiment.py", ROOT / "attacks/analyze_steering.py"]
+        source_paths = [ROOT / "attacks/run_steering_experiment.py", ROOT / "attacks/analyze_steering.py",
+                        ROOT / "attacks/generate_trace.py", ROOT / "attacks/prefetch_steer.cpp",
+                        ROOT / "tracer/champsim_tracer.cpp"]
         source_paths += sorted((ROOT / "src").glob("*steering*")) + sorted((ROOT / "inc").glob("*steering*"))
         source_paths += [ROOT / "src/main.cc", ROOT / "prefetcher/scooby.cc"]
         manifest["source_sha256"] = {str(p.relative_to(ROOT)): sha256(p) for p in source_paths if p.is_file()}
@@ -222,9 +228,10 @@ def main():
                 if on_sequence is not None:
                     schedule.extend(["--on-sequence", ",".join(map(str, on_sequence))])
                 command = [sys.executable, str(ROOT / "attacks/generate_trace.py"),
-                           "--pin-root", str(args.pin_root.resolve()), "--output", str(directory), "--",
+                           "--pin-root", str(args.pin_root.resolve()), "--output", str(directory),
+                           "--max-instructions", str(args.trace_max_instructions), "--",
                            "--mode", mode, "--size-mib", str(args.size_mib), "--streams", str(args.streams),
-                           "--gap-rounds", "0", "--seed", str(args.seed), *schedule]
+                           "--gap-rounds", str(args.gap_rounds), "--seed", str(args.seed), *schedule]
                 checked_run(command, output / f"trace-{mode}.log", env, args.timeout_seconds)
             manifest["traces"][mode] = validate_trace(directory)
             with Path(manifest["traces"][mode]["phases"]).open(newline="") as stream:

@@ -60,3 +60,10 @@ python3 attacks/run_steering_experiment.py \
   --min-speedup-pct 0.4 --min-slowdown-pct 1.0 \
   --off 250000 --pre 250000 --post 5000000 \
   --instructions 15000000 --warmup 100000
+
+# 50M warmup + 200M measured victim instructions: the old 23.8M-record attacker
+# trace is too short. Follow attacks/LONG_CAMPAIGN.md for the complete build,
+# long stream/quiet trace recording, six two-core controls, and aggregation.
+# Quick entry points after building and recording those long traces:
+python3 attacks/run_steering_experiment.py --help
+python3 attacks/aggregate_steering.py --help

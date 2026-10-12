@@ -170,6 +170,10 @@ write failures, and uses a stable output filename string. It remains single-thre
 
 ## Measure steering with causal controls
 
+For a 50-million-instruction warmup, 200-million-instruction measurement, and
+multiple-victim campaign, follow the complete [long-campaign command guide](LONG_CAMPAIGN.md).
+The older targeted attacker recordings are too short for that instruction budget.
+
 The measured `603.bwaves_s` result and contrasting `470.lbm` result are in
 [`FINDINGS.md`](FINDINGS.md). Read its limitations before describing this as
 reward poisoning or a workload-general attack.
