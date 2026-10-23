@@ -18,6 +18,10 @@ uint32_t victim_core();
 bool disable_prefetch(uint32_t cpu);
 bool freeze_learning(uint32_t cpu);
 bool disable_hbw_reward(uint32_t cpu);
+// Closed-loop steering oracle: should this attacker off-chip read be
+// short-circuited (attacker kept quiet) instead of loading DRAM right now?
+// Reacts to the victim's most recent action. The attacker core keeps running.
+bool suppress_attacker_dram(uint32_t cpu);
 void decision(uint32_t cpu, int32_t action, uint32_t degree, uint32_t requested);
 void reward(uint32_t cpu, int32_t value, int32_t type, bool high_bw);
 void training(uint32_t cpu, bool applied);

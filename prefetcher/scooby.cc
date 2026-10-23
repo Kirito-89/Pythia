@@ -727,9 +727,6 @@ int32_t Scooby::compute_reward(Scooby_PTEntry *ptentry, RewardType type)
 {
 	bool high_bw = (knob::scooby_enable_hbw_reward && !steering::disable_hbw_reward(owner_cpu) && is_high_bw()) ? true : false;
 	int32_t reward = 0;
-	if (high_bw) {
-    std::cout << "DEBUG_POISON: High-BW reward table triggered!" << std::endl;
-}
 	stats.reward.compute_reward.dist[type][high_bw]++;
 
 	if(type == RewardType::correct_timely)

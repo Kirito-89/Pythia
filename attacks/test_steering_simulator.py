@@ -289,5 +289,62 @@ class SteeringSimulatorTests(unittest.TestCase):
         self.assertGreater(sum(int(r["updates"]) for r in ablated_rows), 0)
 
 
+    def test_oracle_rejects_invalid_configuration(self):
+        cases = [
+            ("--steering_oracle_enable=true",),  # conditional mode needs a target
+            ("--steering_oracle_enable=true", "--steering_oracle_target_action=999"),
+            ("--steering_oracle_enable=true", "--steering_oracle_mode=budget",
+             "--steering_oracle_budget_num=2", "--steering_oracle_budget_den=1"),
+            ("--steering_oracle_enable=true", "--steering_oracle_mode=sideways"),
+        ]
+        for options in cases:
+            with self.subTest(options=options):
+                self.simulate(*options, "--steering_stop_at_victim=true", valid=False)
+
+    def test_oracle_budget_full_suppress_removes_attacker_dram_without_deadlock(self):
+        # Full suppression short-circuits every attacker DRAM read. The attacker
+        # core keeps running (no deadlock on either core), the victim completes,
+        # and the reported loud fraction is zero.
+        text, _ = self.simulate(
+            "--steering_oracle_enable=true", "--steering_oracle_mode=budget",
+            "--steering_oracle_budget_num=1", "--steering_oracle_budget_den=1",
+            "--steering_stop_at_victim=true", "--steering_no_repeat=true",
+        )
+        requests = int(self.metric(text, "steering_oracle_attacker_requests"))
+        suppressed = int(self.metric(text, "steering_oracle_attacker_suppressed"))
+        loud = int(self.metric(text, "steering_oracle_attacker_loud"))
+        self.assertGreater(requests, 0)
+        self.assertEqual(suppressed, requests)
+        self.assertEqual(loud, 0)
+        self.assertEqual(float(self.metric(text, "steering_oracle_attacker_loud_fraction")), 0.0)
+        self.assertEqual(self.metric(text, "Core_0_measurement_complete"), "1")
+        self.assertGreater(int(self.metric(text, "Core_1_instructions")), 0)
+
+    def test_oracle_conditional_gate_is_action_conditional(self):
+        # The gate suppresses the attacker's DRAM traffic only while the victim's
+        # latest action is the target. Targeting the action the synthetic victim
+        # actually chooses (1) suppresses; targeting one it never chooses (0)
+        # never suppresses. Both complete without deadlock.
+        def run(target):
+            text, _ = self.simulate(
+                "--steering_oracle_enable=true", "--steering_oracle_mode=conditional",
+                f"--steering_oracle_target_action={target}", "--steering_stop_at_victim=true",
+            )
+            req = int(self.metric(text, "steering_oracle_attacker_requests"))
+            sup = int(self.metric(text, "steering_oracle_attacker_suppressed"))
+            loud = int(self.metric(text, "steering_oracle_attacker_loud"))
+            self.assertGreater(req, 0)
+            self.assertEqual(sup + loud, req)
+            frac = float(self.metric(text, "steering_oracle_attacker_loud_fraction"))
+            self.assertAlmostEqual(frac, loud / req, places=6)
+            return sup, loud, req
+
+        chosen_sup, _, chosen_req = run(1)       # dominant action -> suppressed
+        unchosen_sup, unchosen_loud, unchosen_req = run(0)  # unchosen -> never suppressed
+        self.assertGreater(chosen_sup, 0)
+        self.assertEqual(unchosen_sup, 0)
+        self.assertEqual(unchosen_loud, unchosen_req)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

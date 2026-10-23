@@ -11,6 +11,9 @@
 #include <sstream>
 #include <vector>
 
+// Defined in knobs.cc and populated from the config ini before initialize().
+namespace knob { extern std::vector<int32_t> scooby_actions; }
+
 namespace steering {
 namespace {
 std::string log_path, phase_path, cycle_phase_path;
@@ -19,6 +22,31 @@ uint32_t victim = 0, attacker = 1;
 bool freeze = false, stop_victim = false, no_repeat = false, disable_attacker = false;
 bool disable_hbw_after_warmup = false;
 bool roi = false;
+
+// Closed-loop steering oracle. The attacker core always runs and retires
+// normally; the oracle modulates only its *off-chip* traffic by short-circuiting
+// a fraction of its DRAM read requests (they return immediately, like the
+// pre-warmup path, consuming no bandwidth). This avoids the deadlock that
+// cycle-skipping causes -- a frozen core desyncs the shared DRAM timing model
+// and wedges the victim -- and it survives permanent quiet, which a successful
+// steer produces.
+//   "conditional": binary. The attacker is QUIET (all DRAM reads suppressed)
+//                  exactly while the victim's most recent action equals
+//                  target_action, and LOUD otherwise. This teaches the target.
+//   "budget":      action-independent. A fixed fraction budget_num/budget_den
+//                  of attacker DRAM reads is suppressed every request, matched
+//                  to the treatment's measured suppressed fraction. This is the
+//                  budget-matched deconfounder isolating action-conditioning
+//                  from raw contention volume.
+bool oracle_enable = false;
+std::string oracle_mode = "conditional";
+int32_t target_action = 0;
+bool target_action_set = false;
+uint64_t budget_num = 0, budget_den = 1;   // budget-mode suppressed fraction
+int32_t last_victim_action = INT32_MIN;    // sentinel: no victim decision seen yet
+uint64_t oracle_requests = 0;              // attacker DRAM reads seen by the gate in ROI
+uint64_t oracle_suppressed = 0;            // of those, how many were short-circuited
+uint64_t budget_counter = 0;               // phases the budget duty cycle
 std::ofstream output, phases_output;
 struct Phase { uint64_t point; std::string name; uint64_t pulse; };
 std::vector<Phase> phases;
@@ -50,6 +78,16 @@ uint64_t integer(const std::string& text) {
         fail("expected unsigned integer: " + text);
     try { return std::stoull(text); }
     catch (...) { fail("integer out of range: " + text); }
+}
+int32_t signed_integer(const std::string& text) {
+    std::size_t start = (!text.empty() && (text[0] == '-' || text[0] == '+')) ? 1 : 0;
+    if (text.size() == start || text.find_first_not_of("0123456789", start) != std::string::npos)
+        fail("expected signed integer: " + text);
+    try {
+        long value = std::stol(text);
+        if (value < INT32_MIN || value > INT32_MAX) fail("action out of int32 range: " + text);
+        return static_cast<int32_t>(value);
+    } catch (...) { fail("integer out of range: " + text); }
 }
 bool boolean(const std::string& text) {
     if (text == "true") return true;
@@ -192,6 +230,13 @@ bool parse_knob(const char* key, const char* raw) {
     else if (name == "steering_no_repeat") no_repeat = boolean(value);
     else if (name == "steering_disable_attacker_prefetch") disable_attacker = boolean(value);
     else if (name == "steering_disable_hbw_reward_after_warmup") disable_hbw_after_warmup = boolean(value);
+    else if (name == "steering_oracle_enable") oracle_enable = boolean(value);
+    else if (name == "steering_oracle_mode") {
+        if (value != "conditional" && value != "budget") fail("steering_oracle_mode must be conditional or budget");
+        oracle_mode = value;
+    } else if (name == "steering_oracle_target_action") { target_action = signed_integer(value); target_action_set = true; }
+    else if (name == "steering_oracle_budget_num") budget_num = integer(value);
+    else if (name == "steering_oracle_budget_den") { budget_den = integer(value); if (!budget_den) fail("steering_oracle_budget_den must be positive"); }
     else fail("unknown option: " + name);
     return true;
 }
@@ -199,14 +244,42 @@ bool logging() { return !log_path.empty(); }
 bool stop_at_victim() { return stop_victim; }
 uint32_t victim_core() { return victim; }
 bool disable_prefetch(uint32_t cpu) { return disable_attacker && cpu == attacker; }
+bool suppress_attacker_dram(uint32_t cpu) {
+    // Should this attacker off-chip read be short-circuited (quiet) instead of
+    // loading DRAM? Fast path: only the attacker core, only inside the ROI.
+    if (!oracle_enable || !roi || cpu != attacker) return false;
+    bool suppress;
+    if (oracle_mode == "conditional") {
+        // Binary: quiet exactly while the victim's latest action is the target.
+        suppress = (last_victim_action == target_action);
+    } else {  // budget: action-independent fraction matched to the treatment
+        suppress = (budget_counter % budget_den) < budget_num;
+        ++budget_counter;
+    }
+    ++oracle_requests;
+    oracle_suppressed += suppress;
+    return suppress;
+}
 bool freeze_learning(uint32_t cpu) { return freeze && roi && cpu == victim; }
 bool disable_hbw_reward(uint32_t cpu) { return disable_hbw_after_warmup && roi && cpu == victim; }
 void initialize() {
     const bool configured = logging() || freeze || stop_victim || no_repeat || disable_attacker || disable_hbw_after_warmup ||
-                            !phase_path.empty() || !cycle_phase_path.empty();
+                            oracle_enable || !phase_path.empty() || !cycle_phase_path.empty();
     if (!configured) return;
     if (victim >= NUM_CPUS || attacker >= NUM_CPUS || victim == attacker) fail("requires distinct valid victim and attacker cores");
     if (!epoch) fail("steering_epoch must be positive");
+    if (oracle_enable) {
+        if (oracle_mode == "conditional") {
+            if (!target_action_set) fail("steering_oracle_mode=conditional requires steering_oracle_target_action");
+            if (!knob::scooby_actions.empty()) {
+                bool found = false;
+                for (auto a : knob::scooby_actions) found |= (a == target_action);
+                if (!found) fail("steering_oracle_target_action is not in scooby_actions");
+            }
+        } else {  // budget
+            if (budget_num > budget_den) fail("steering_oracle_budget_num must be <= steering_oracle_budget_den");
+        }
+    }
     read_phases();
     if (logging()) {
         output.open(log_path);
@@ -224,7 +297,10 @@ void initialize() {
               << "\nsteering_no_repeat " << no_repeat << "\nsteering_disable_attacker_prefetch " << disable_attacker
               << "\nsteering_disable_hbw_reward_after_warmup " << disable_hbw_after_warmup
               << "\nsteering_epoch " << epoch << "\nsteering_victim_core " << victim
-              << "\nsteering_attacker_core " << attacker << "\nsteering_log " << log_path << std::endl;
+              << "\nsteering_attacker_core " << attacker << "\nsteering_log " << log_path
+              << "\nsteering_oracle_enable " << oracle_enable << "\nsteering_oracle_mode " << oracle_mode
+              << "\nsteering_oracle_target_action " << target_action
+              << "\nsteering_oracle_budget_num " << budget_num << "\nsteering_oracle_budget_den " << budget_den << std::endl;
 }
 void begin_roi() {
     roi = true;
@@ -255,12 +331,23 @@ void finish() {
     flush();
     if (output.is_open()) { output.close(); if (output.fail()) fail("closing interval log failed"); }
     if (phases_output.is_open()) { phases_output.close(); if (phases_output.fail()) fail("closing phase log failed"); }
+    if (oracle_enable) {
+        const uint64_t loud = oracle_requests - oracle_suppressed;
+        std::cout << "steering_oracle_attacker_requests " << oracle_requests
+                  << "\nsteering_oracle_attacker_suppressed " << oracle_suppressed
+                  << "\nsteering_oracle_attacker_loud " << loud
+                  << "\nsteering_oracle_attacker_loud_fraction "
+                  << (oracle_requests ? double(loud) / oracle_requests : 0.0) << std::endl;
+    }
 }
 void mark_complete(uint32_t cpu) { completed[cpu] = true; }
 void trace_end(uint32_t cpu) {
     if (no_repeat) fail("trace exhausted for core " + std::to_string(cpu) + "; replay disabled; generate a longer trace");
 }
 void decision(uint32_t cpu, int32_t action, uint32_t degree, uint32_t requested) {
+    // Record the victim's latest action for the closed-loop oracle. This runs
+    // even when interval logging is disabled, since the gate depends on it.
+    if (cpu == victim) last_victim_action = action;
     if (!logging() || !roi || !active[cpu]) return;
     auto& c = counters[cpu];
     ++c.decisions; c.zero += action == 0; c.degree += action == 0 ? 0 : degree; c.predicted += requested;

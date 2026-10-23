@@ -25,6 +25,7 @@ struct Config {
     std::string mode = "stream";
     uint64_t size_mib = 128, streams = 4, seed = 1, write_every = 0;
     uint64_t gap_rounds = 0;
+    uint64_t burst = 3;  // sawtooth: sequential lines per burst before a random jump
     uint64_t pre = 1000000, on = 250000, off = 250000, pulses = 4, post = 1000000;
     std::vector<uint64_t> on_sequence;
 };
@@ -60,7 +61,9 @@ static Config parse(int argc, char** argv) {
         const std::string key = argv[i];
         if (key == "--help") {
             std::cout << "PrefetchSteer: quiet -> (pressure -> quiet)* -> cooldown\n"
-                "  --mode stream|random|chase|quiet  (default stream)\n"
+                "  --mode stream|random|chase|quiet|sawtooth  (default stream)\n"
+                "  --burst N          sawtooth: sequential lines per burst before a\n"
+                "                     random jump (makes Pythia over-prefetch); default 3\n"
                 "  --size-mib N       power of two, default 128\n"
                 "  --streams N        1, 2, 4, 8 or 16; default 4\n"
                 "  --seed N           nonzero deterministic seed, default 1\n"
@@ -85,6 +88,7 @@ static Config parse(int argc, char** argv) {
         else if (key == "--streams") c.streams = v;
         else if (key == "--seed") c.seed = v;
         else if (key == "--write-every") c.write_every = v;
+        else if (key == "--burst") c.burst = v;
         else if (key == "--gap-rounds") c.gap_rounds = v;
         else if (key == "--pre") c.pre = v;
         else if (key == "--on") c.on = v;
@@ -93,8 +97,11 @@ static Config parse(int argc, char** argv) {
         else if (key == "--post") c.post = v;
         else throw std::runtime_error("unknown option: " + key);
     }
-    if (c.mode != "stream" && c.mode != "random" && c.mode != "chase" && c.mode != "quiet")
-        throw std::runtime_error("mode must be stream, random, chase or quiet");
+    if (c.mode != "stream" && c.mode != "random" && c.mode != "chase" && c.mode != "quiet" &&
+        c.mode != "sawtooth")
+        throw std::runtime_error("mode must be stream, random, chase, quiet or sawtooth");
+    if (c.mode == "sawtooth" && (!c.burst || c.burst > 1048576))
+        throw std::runtime_error("burst must be in [1, 1048576]");
     if (!c.size_mib || (c.size_mib & (c.size_mib - 1)) || c.size_mib > 16384)
         throw std::runtime_error("size-mib must be a power of two in [1, 16384]");
     if (!c.streams || (c.streams & (c.streams - 1)) || c.streams > 16)
@@ -140,7 +147,7 @@ template <size_t Streams> class Actuator {
     std::unique_ptr<Line[]> storage;
     volatile Line* lines;
     const uint64_t per_stream;
-    std::array<uint64_t, Streams> position{}, rng{}, sums{};
+    std::array<uint64_t, Streams> position{}, rng{}, sums{}, burst_at{};
 public:
     explicit Actuator(const Config& config)
         : c(config), storage(new Line[c.size_mib * 1024 * 1024 / sizeof(Line)]),
@@ -166,10 +173,12 @@ public:
         const auto mask = per_stream - 1;
         const auto span = per_stream;
         const auto write_every = c.write_every;
+        const auto burst_len = c.burst;
         auto* const buffer = lines;
         auto offsets = position;
         auto random_state = rng;
         auto totals = sums;
+        auto burst_pos = burst_at;
         uint64_t delay_state = c.seed;
         for (uint64_t batch = 0; batch < batches; ++batch) {
             const bool write = write_every && batch % write_every == 0;
@@ -182,6 +191,13 @@ public:
                 if (write) buffer[index].value = value + 1;
                 if (Mode == 2) offsets[s] = value; // dependent pointer chain
                 else if (Mode == 0) offsets[s] = (offsets[s] + 1) & mask;
+                else if (Mode == 3) {
+                    // Sawtooth: a short sequential run (which Pythia learns and
+                    // over-prefetches) then a random jump that strands the
+                    // prefetched look-ahead lines -> wasted bandwidth.
+                    if (++burst_pos[s] < burst_len) offsets[s] = (offsets[s] + 1) & mask;
+                    else { burst_pos[s] = 0; offsets[s] = random_next(random_state[s]) & mask; }
+                }
             }
             // Keep pacing in the instruction trace. No host timers or sleeps.
             if constexpr (Throttle) {
@@ -192,6 +208,7 @@ public:
         position = offsets;
         rng = random_state;
         sums = totals;
+        burst_at = burst_pos;
     }
 
     template <int Mode> void pulse(uint64_t batches) {
@@ -214,6 +231,7 @@ public:
                 if (c.mode == "stream") this->pulse<0>(batches);
                 else if (c.mode == "random") this->pulse<1>(batches);
                 else if (c.mode == "chase") this->pulse<2>(batches);
+                else if (c.mode == "sawtooth") this->pulse<3>(batches);
                 else checksum = quiet(batches, checksum);
             }
             if (c.off) {

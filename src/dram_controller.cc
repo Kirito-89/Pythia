@@ -443,6 +443,18 @@ int MEMORY_CONTROLLER::add_rq(PACKET *packet)
         return -1;
     }
 
+    // Closed-loop steering oracle: while the attacker core is being kept quiet,
+    // short-circuit its reads so they consume no DRAM bandwidth. The core still
+    // runs and retires; only its off-chip pressure is removed. Mirrors the
+    // pre-warmup dummy-response path above.
+    if (steering::suppress_attacker_dram(packet->cpu)) {
+        if (packet->instruction)
+            upper_level_icache[packet->cpu]->return_data(packet);
+        else
+            upper_level_dcache[packet->cpu]->return_data(packet);
+        return -1;
+    }
+
     // check for the latest wirtebacks in the write queue
     uint32_t channel = dram_get_channel(packet->address);
     int wq_index = check_dram_queue(&WQ[channel], packet);

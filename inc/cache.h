@@ -71,7 +71,16 @@ extern uint32_t PAGE_TABLE_LATENCY, SWAP_LATENCY;
 #define L2C_LATENCY 10  // 5 (L1I or L1D) + 10 = 14 cycles
 
 // LAST LEVEL CACHE
-#define LLC_SET NUM_CPUS*2048
+// DoS weighted-speedup study: the LLC is a FIXED 8 MB machine resource (4*2048
+// sets * 16 ways * 64 B) regardless of core count, so the single-core "alone"
+// baseline sees the same LLC capacity as the 4-core mix it is the denominator
+// for. Was NUM_CPUS*2048, which gave a 1-core baseline only 2 MB -- inconsistent
+// with the 8 MB seen in the 4-core run. (>4 cores keeps per-core scaling.)
+#if NUM_CPUS <= 4
+#define LLC_SET (4*2048)
+#else
+#define LLC_SET (NUM_CPUS*2048)
+#endif
 #define LLC_WAY 16
 #define LLC_RQ_SIZE NUM_CPUS*L2C_MSHR_SIZE //48
 #define LLC_WQ_SIZE NUM_CPUS*L2C_MSHR_SIZE //48
