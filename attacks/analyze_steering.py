@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Analyze victim-only steering windows and matched quiet controls (no trace replay)."""
 import argparse
+import bisect
 import csv
 import json
 import math
@@ -41,6 +42,7 @@ def read_intervals(path, core=0):
             row = dict(raw)
             for field in (*COUNTS, "core", "cycle_begin", "cycle_end", "pulse"):
                 row[field] = int(raw[field])
+            row["retired_begin"], row["retired_end"] = int(raw["retired_begin"]), int(raw["retired_end"])
             row["cycles"] = row["cycle_end"] - row["cycle_begin"]
             if row["cycles"] <= 0:
                 raise ValueError(f"{path}:{line}: nonpositive interval")
@@ -88,6 +90,63 @@ def summarize(rows):
     return total
 
 
+def quiet_cycles_at(quiet):
+    """Return f(retired) -> quiet-run cycle at which core 0 had retired that many instructions."""
+    xs = [quiet[0]["retired_begin"]] + [row["retired_end"] for row in quiet]
+    ys = [quiet[0]["cycle_begin"]] + [row["cycle_end"] for row in quiet]
+    def at(retired):
+        if retired < xs[0] or retired > xs[-1]:
+            return None
+        hi = bisect.bisect_left(xs, retired)  # first boundary >= retired
+        if xs[hi] == retired:
+            return ys[hi]
+        lo = hi - 1  # xs[lo] < retired < xs[hi]
+        return ys[lo] + (ys[hi] - ys[lo]) * (retired - xs[lo]) / (xs[hi] - xs[lo])
+    return at
+
+
+def instruction_aligned(pair, attack, quiet, settle_cycles=100_000):
+    """Attack vs quiet over the SAME victim instruction range, immune to program-phase drift.
+
+    Cycle-matched windows compare different parts of the victim trace once the attack
+    has slowed it. Here each attack window [r0, r1) is compared with the cycles the
+    quiet run needed for exactly those instructions (linear interpolation inside one
+    10k-cycle interval)."""
+    at = quiet_cycles_at(quiet)
+    segments = []  # consecutive attack rows sharing (phase, pulse)
+    for row in attack:
+        key = (row["phase"], row["pulse"])
+        if segments and segments[-1][0] == key:
+            segments[-1][1].append(row)
+        else:
+            segments.append((key, [row]))
+    out, totals = [], {}
+    def add(phase, pulse, rows):
+        r0, r1 = rows[0]["retired_begin"], rows[-1]["retired_end"]
+        q0, q1 = at(r0), at(r1)
+        cycles = rows[-1]["cycle_end"] - rows[0]["cycle_begin"]
+        if q0 is None or q1 is None or r1 <= r0 or q1 <= q0:
+            return
+        out.append({"pair": pair, "pulse": pulse, "phase": phase, "victim_instructions": r1 - r0,
+                    "attack_cycles": cycles, "quiet_cycles": round(q1 - q0, 1),
+                    "aligned_slowdown_pct": (cycles / (q1 - q0) - 1) * 100})
+        t = totals.setdefault(phase, [0, 0, 0.0])
+        t[0] += r1 - r0; t[1] += cycles; t[2] += q1 - q0
+    for (phase, pulse), rows in segments:
+        if phase not in ("pressure", "off", "post"):
+            continue
+        add(phase, pulse, rows)
+        if phase == "off":  # let the pressure drain before judging a recovery/speedup
+            settled = [r for r in rows if r["cycle_begin"] >= rows[0]["cycle_begin"] + settle_cycles]
+            if settled:
+                add("settled_off", pulse, settled)
+    for phase, (instr, cycles, qcycles) in totals.items():
+        out.append({"pair": pair, "pulse": "all", "phase": phase, "victim_instructions": instr,
+                    "attack_cycles": cycles, "quiet_cycles": round(qcycles, 1),
+                    "aligned_slowdown_pct": (cycles / qcycles - 1) * 100})
+    return out
+
+
 def window_key(row):
     return row["cycle_begin"], row["cycle_end"], row["phase"], row["pulse"]
 
@@ -100,6 +159,13 @@ def matched_windows(attack, quiet):
     return [left[k] for k in keys], [right[k] for k in keys]
 
 
+ATTACKER_DRAM_TOLERANCE = 0  # per-interval attacker DRAM requests still counted as "silent" (latency probe trickle)
+
+
+def attacker_silent(row):
+    return row["dram_requests"] - row["core_dram_requests"] <= ATTACKER_DRAM_TOLERANCE
+
+
 def late_cooldown(attack, quiet):
     """Exclude the pressure drain and any interval with attacker DRAM requests."""
     post = [row for row in attack if row["phase"] == "post"]
@@ -108,7 +174,7 @@ def late_cooldown(attack, quiet):
     start = post[0]["cycle_begin"] + 100_000
     keep = [i for i, row in enumerate(attack)
             if row["phase"] == "post" and row["cycle_begin"] >= start
-            and row["dram_requests"] == row["core_dram_requests"]]
+            and attacker_silent(row)]
     return [attack[i] for i in keep], [quiet[i] for i in keep]
 
 
@@ -121,7 +187,7 @@ def settled_off(attack, quiet, pulse):
     keep = [i for i, row in enumerate(attack)
             if row["phase"] == "off" and row["pulse"] == pulse
             and row["cycle_begin"] >= start
-            and row["dram_requests"] == row["core_dram_requests"]]
+            and attacker_silent(row)]
     return [attack[i] for i in keep], [quiet[i] for i in keep]
 
 
@@ -254,6 +320,8 @@ def analyze(experiment, plots=True):
     interval_targets = []
     pressure_goal_targets = []
     params = manifest.get("parameters", {})
+    global ATTACKER_DRAM_TOLERANCE
+    ATTACKER_DRAM_TOLERANCE = int(params.get("attacker_dram_tolerance") or 0)
     min_slowdown = float(params.get("min_slowdown_pct", 1.0))
     min_speedup = float(params.get("min_speedup_pct", 1.0))
     pulse_goals = params.get("pulse_goals")
@@ -314,6 +382,9 @@ def analyze(experiment, plots=True):
                                      "speedup_target_met": speedup is not None and speedup >= min_speedup,
                                      "both_targets_met": pressure_slowdown >= min_slowdown and
                                      speedup is not None and speedup >= min_speedup})
+    aligned = []
+    for pair in pairs:
+        aligned += instruction_aligned(pair["name"], data[pair["attack"]], data[pair["quiet"]])
     interactions = []
     for mode in dict.fromkeys(p["mode"] for p in pairs):
         for phase in ("pressure", "post", "late_post"):
@@ -325,7 +396,7 @@ def analyze(experiment, plots=True):
                     frozen = choices["frozen"][metric + "_delta"]
                     values[metric + "_interaction"] = learned - frozen if learned is not None and frozen is not None else None
                 interactions.append(values)
-    summary = {"runs": run_totals, "comparisons": comparisons,
+    summary = {"runs": run_totals, "comparisons": comparisons, "aligned": aligned,
                "pulse_comparisons": pulse_comparisons, "interval_targets": interval_targets,
                "pressure_goal_targets": pressure_goal_targets,
                "target_thresholds": {"slowdown_pct": min_slowdown, "speedup_pct": min_speedup},
@@ -352,6 +423,7 @@ def analyze(experiment, plots=True):
         flat.append(row)
     write_csv(experiment / "comparison.csv", flat)
     write_csv(experiment / "pulse_comparison.csv", pulse_comparisons)
+    write_csv(experiment / "aligned_comparison.csv", aligned)
     write_csv(experiment / "interval_targets.csv", interval_targets)
     write_csv(experiment / "pressure_goal_targets.csv", pressure_goal_targets)
     lines = ["# Steering experiment results", "", "Victim IPC and policy metrics below cover measured core 0 intervals only.", "",
@@ -371,6 +443,11 @@ def analyze(experiment, plots=True):
               "|---|---:|---|---:|---:|---:|---:|---:|"]
     for c in pulse_comparisons:
         lines.append(f"| {c['pair']} | {c['pulse']} | {c['phase']} | {c['matched_cycles']} | {number(c['attack_ipc'])} | {number(c['quiet_ipc'])} | {number(c['slowdown_pct'], 2)} | {c['attacker_dram_requests']} |")
+    lines += ["", "## Instruction-aligned comparison (use this one)", "",
+              "Attack cycles versus the cycles the quiet run needed for the **same victim instructions**. This removes the program-phase drift that makes cycle-matched off windows misleading. Positive = victim slower under attack; negative = faster than quiet.", "",
+              "| Pair | Pulse | Phase | Victim instr. | Attack cycles | Quiet cycles | Slowdown % |", "|---|---|---|---:|---:|---:|---:|"]
+    for a in aligned:
+        lines.append(f"| {a['pair']} | {a['pulse']} | {a['phase']} | {a['victim_instructions']} | {a['attack_cycles']} | {a['quiet_cycles']} | {number(a['aligned_slowdown_pct'], 2)} |")
     if not pressure_goal_targets:
         lines += ["", f"Interval targets: pressure slowdown ≥ {min_slowdown:g}% and settled-off speedup ≥ {min_speedup:g}% above quiet.", "",
                   "| Pair | Pulse | Pressure slowdown % | Settled-off speedup % | Both targets met |",

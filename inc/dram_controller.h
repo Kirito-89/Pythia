@@ -42,6 +42,8 @@ class MEMORY_CONTROLLER : public MEMORY {
     
     // to measure bandwidth
     uint64_t rq_enqueue_count, last_enqueue_count, epoch_enqueue_count, next_bw_measure_cycle;
+    // per-core attribution (defense): each core's own enqueue counters
+    uint64_t core_enqueue_count[NUM_CPUS] = {}, core_last_enqueue[NUM_CPUS] = {}, core_epoch_enqueue[NUM_CPUS] = {};
     uint8_t bw;
     uint64_t total_bw_epochs;
     uint64_t bw_level_hist[DRAM_BW_LEVELS];

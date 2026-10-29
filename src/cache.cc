@@ -1,6 +1,7 @@
 #include <algorithm>
 #include "cache.h"
 #include "set.h"
+#include "steering.h"
 
 uint64_t l2pf_access = 0;
 
@@ -147,6 +148,8 @@ void CACHE::handle_fill()
             {
                 uint64_t current_miss_latency = (current_core_cycle[fill_cpu] - MSHR.entry[mshr_index].cycle_enqueued);	
                 total_miss_latency += current_miss_latency;
+                if (cache_type == IS_LLC && MSHR.entry[mshr_index].type == LOAD)
+                    steering::probe_latency(fill_cpu, current_miss_latency);
             }
 
             MSHR.remove_queue(&MSHR.entry[mshr_index]);
@@ -297,6 +300,8 @@ void CACHE::handle_fill()
             {
                 uint64_t current_miss_latency = (current_core_cycle[fill_cpu] - MSHR.entry[mshr_index].cycle_enqueued);
                 total_miss_latency += current_miss_latency;
+                if (cache_type == IS_LLC && MSHR.entry[mshr_index].type == LOAD)
+                    steering::probe_latency(fill_cpu, current_miss_latency);
             }
     	  
             MSHR.remove_queue(&MSHR.entry[mshr_index]);

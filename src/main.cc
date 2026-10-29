@@ -985,8 +985,22 @@ int main(int argc, char** argv)
             uncore.DRAM.next_bw_measure_cycle = uncore.cycle + knob::measure_dram_bw_epoch;
             uncore.DRAM.total_bw_epochs++;
             uncore.DRAM.bw_level_hist[uncore.DRAM.bw]++;
-            steering::bandwidth(uncore.DRAM.bw);
-            uncore.LLC.broadcast_bw(uncore.DRAM.bw);
+            const uint32_t reported_bw = steering::oracle_bandwidth(uncore.DRAM.bw);
+            steering::bandwidth(reported_bw);
+            if (steering::per_core_bandwidth()) {
+                // DEFENSE: per-core reward attribution. Each core's prefetchers see a bucket
+                // derived only from that core's own DRAM requests, so a co-runner cannot move it.
+                for (uint32_t c = 0; c < NUM_CPUS; ++c) {
+                    uint64_t& e = uncore.DRAM.core_epoch_enqueue[c];
+                    e = e/2 + (uncore.DRAM.core_enqueue_count[c] - uncore.DRAM.core_last_enqueue[c]);
+                    uncore.DRAM.core_last_enqueue[c] = uncore.DRAM.core_enqueue_count[c];
+                    uint32_t q = ((float)100*e)/DRAM_DBUS_MAX_CAS;
+                    uint8_t level = q <= 25 ? 0 : q <= 50 ? 1 : q <= 75 ? 2 : 3;
+                    ooo_cpu[c].L1D.l1d_prefetcher_broadcast_bw(level);
+                    ooo_cpu[c].L2C.l2c_prefetcher_broadcast_bw(level);
+                }
+            } else
+            uncore.LLC.broadcast_bw(reported_bw);
         }
 
         uncore.LLC.operate();

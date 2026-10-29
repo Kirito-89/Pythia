@@ -486,6 +486,7 @@ int MEMORY_CONTROLLER::add_rq(PACKET *packet)
 
             /* keep a track of added entries */
             rq_enqueue_count++;
+            if (packet->cpu < NUM_CPUS) core_enqueue_count[packet->cpu]++;
             steering::dram_request(packet->cpu);
 
 #ifdef DEBUG_PRINT

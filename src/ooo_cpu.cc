@@ -198,7 +198,8 @@ void O3_CPU::handle_branch()
             if (!fread(&current_instr, instr_size, 1, trace_file)) {
                 steering::trace_end(cpu);
                 // reached end of file for this trace
-                cout << "*** Reached end of trace for Core: " << cpu << " Repeating trace: " << trace_string << endl; 
+                if (!steering::replay_is_expected(cpu))
+                    cout << "*** Reached end of trace for Core: " << cpu << " Repeating trace: " << trace_string << endl; 
 
                 // close the trace file and re-open it
                 pclose(trace_file);
@@ -208,6 +209,16 @@ void O3_CPU::handle_branch()
                     assert(0);
                 }
             } else { // successfully read the trace
+
+                // Victim-clocked attacker gate: outside a scheduled pressure window the
+                // attacker still retires its instructions but issues no memory operations.
+                bool has_memory_op = false;
+                for (uint32_t i=0; i<MAX_INSTR_DESTINATIONS; i++) has_memory_op |= current_instr.destination_memory[i] != 0;
+                for (int i=0; i<NUM_INSTR_SOURCES; i++) has_memory_op |= current_instr.source_memory[i] != 0;
+                if (steering::suppress_memory(cpu, has_memory_op)) {
+                    for (uint32_t i=0; i<MAX_INSTR_DESTINATIONS; i++) current_instr.destination_memory[i] = 0;
+                    for (int i=0; i<NUM_INSTR_SOURCES; i++) current_instr.source_memory[i] = 0;
+                }
 
                 // copy the instruction into the performance model's instruction format
                 ooo_model_instr arch_instr;

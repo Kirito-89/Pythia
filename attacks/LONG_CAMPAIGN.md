@@ -130,7 +130,7 @@ python3 attacks/run_steering_experiment.py \
   --pulses 2 --post 60000000 --size-mib 128 --streams 8 \
   --seed 1 --gap-rounds 0 --pulse-goals speedup,slowdown \
   --min-speedup-pct 0.4 --min-slowdown-pct 1.0 \
-  --reward-ablation --timeout-seconds 86400
+  --reward-ablation
 ```
 
 The runner chooses `--l2c_prefetcher_types=scooby`, keeps the attacker core's
