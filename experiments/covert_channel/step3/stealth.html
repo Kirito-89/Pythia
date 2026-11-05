@@ -1,0 +1,260 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Stealth Effort Knee</title>
+<style>
+  /* Layout: a research results page — eyebrow+title, a stat row, two scaled SVG panels sharing a
+     log duty x-axis (separability, then footprint), then findings/method. Lab-report neutral with
+     a cool-slate ground; two CVD-safe categorical hues (blue = IPC, amber = action-0). */
+  :root{
+    --bg:#f4f6fa; --surface:#ffffff; --surface-2:#eef1f7; --border:#d8dee9;
+    --ink:#161a22; --ink-2:#4a5464; --ink-3:#79828f;
+    --accent:#2f6fe0;      /* IPC series + primary accent */
+    --accent-2:#d9831a;    /* action-0 series */
+    --danger:#c23b4b;      /* usable threshold line */
+    --knee:#2f6fe0;        /* knee band */
+    --grid:#e5e9f1;
+    --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+    --sans:"Inter","Helvetica Neue",system-ui,sans-serif;
+    --maxw:960px;
+  }
+  :root:not([data-theme="light"]){ color-scheme:light; }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --bg:#0e1118; --surface:#161b25; --surface-2:#1c2330; --border:#2b3443;
+      --ink:#eef2f8; --ink-2:#aeb8c7; --ink-3:#7d8798;
+      --accent:#5a93ff; --accent-2:#f2a63d;
+      --danger:#f0677a; --knee:#5a93ff; --grid:#232c3a;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#0e1118; --surface:#161b25; --surface-2:#1c2330; --border:#2b3443;
+    --ink:#eef2f8; --ink-2:#aeb8c7; --ink-3:#7d8798;
+    --accent:#5a93ff; --accent-2:#f2a63d;
+    --danger:#f0677a; --knee:#5a93ff; --grid:#232c3a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       line-height:1.55;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:var(--maxw);margin:0 auto;
+        padding-block:40px 64px;
+        padding-left:max(20px,env(safe-area-inset-left,0px));
+        padding-right:max(20px,env(safe-area-inset-right,0px));}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+           color:var(--accent);margin:0 0 10px;}
+  h1{font-size:clamp(28px,5vw,40px);line-height:1.08;margin:0 0 14px;text-wrap:balance;letter-spacing:-.02em;}
+  .lede{font-size:17px;color:var(--ink-2);margin:0;max-width:62ch;}
+  .lede b{color:var(--ink);font-weight:600;}
+
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:30px 0 8px;}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+  .stat .k{font-family:var(--mono);font-size:clamp(26px,4.4vw,34px);font-weight:600;letter-spacing:-.02em;
+           font-variant-numeric:tabular-nums;line-height:1;}
+  .stat .lbl{font-size:12.5px;color:var(--ink-2);margin-top:8px;}
+  .stat.a .k{color:var(--accent-2)} .stat.b .k{color:var(--accent)} .stat.c .k{color:var(--ink)}
+
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+         padding:20px 20px 10px;margin-top:22px;}
+  .panel h2{font-size:16px;margin:0 0 2px;letter-spacing:-.01em;}
+  .panel .sub{font-size:13px;color:var(--ink-2);margin:0 0 6px;}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:4px 0 2px;font-size:13px;}
+  .legend span{display:inline-flex;align-items:center;gap:7px;color:var(--ink-2);}
+  .legend i{width:22px;height:0;border-top-width:3px;border-top-style:solid;position:relative;display:inline-block;}
+  .legend i::after{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+                   width:8px;height:8px;background:var(--surface);}
+  .legend i.ipc{border-color:var(--accent)} .legend i.ipc::after{border:2px solid var(--accent);border-radius:9px}
+  .legend i.a0{border-color:var(--accent-2)} .legend i.a0::after{border:2px solid var(--accent-2)}
+  .legend i.thr{border-color:var(--danger);border-top-style:dashed;}
+  .legend i.thr::after{display:none}
+  .chartbox{width:100%;overflow-x:auto;}
+  svg{display:block;width:100%;height:auto;font-family:var(--mono);}
+  .ax{fill:var(--ink-3);font-size:11px;}
+  .axttl{fill:var(--ink-2);font-size:12px;}
+  .gl{stroke:var(--grid);stroke-width:1;}
+  .tip{position:fixed;pointer-events:none;z-index:20;background:var(--surface);border:1px solid var(--border);
+       border-radius:9px;padding:9px 11px;font-family:var(--mono);font-size:12px;color:var(--ink);
+       box-shadow:0 8px 26px rgba(0,0,0,.18);opacity:0;transition:opacity .08s;min-width:150px;}
+  .tip b{color:var(--ink);} .tip .row{display:flex;justify-content:space-between;gap:14px;}
+  .tip .row span:first-child{color:var(--ink-2)}
+
+  .notes{margin-top:30px;display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .note{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+  .note h3{font-size:13px;margin:0 0 8px;letter-spacing:.02em;text-transform:uppercase;font-family:var(--mono);color:var(--ink-2);}
+  .note p{margin:0 0 9px;font-size:14px;color:var(--ink-2);} .note p:last-child{margin:0}
+  .note b{color:var(--ink);font-weight:600}
+  .foot{margin-top:26px;font-size:12.5px;color:var(--ink-3);font-family:var(--mono);line-height:1.7;}
+  @media(max-width:620px){ .stats{grid-template-columns:1fr}.notes{grid-template-columns:1fr} }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Pythia covert channel · Step 3</p>
+  <h1>How little effort does the channel need?</h1>
+  <p class="lede">The sender transmits a fixed <b>1</b>, but its <b>duty</b> — the fraction of time it actually floods
+  memory — is swept from 100% down to 3%. At each level we ask how well the receiver still separates the signal,
+  and how much bandwidth the sender had to spend to do it. <b>A receiver that reads Pythia's own no-prefetch rate
+  keeps a near-perfect channel down to 6% duty.</b></p>
+
+  <div class="stats">
+    <div class="stat a"><div class="k">0.99</div><div class="lbl">action-0 separability (AUC) still holds at 6% duty — the Pythia-specific observable barely degrades</div></div>
+    <div class="stat b"><div class="k">6%</div><div class="lbl">duty knee for raw IPC: below this the IPC-only channel falls under AUC 0.90</div></div>
+    <div class="stat c"><div class="k">0.56×</div><div class="lbl">sender's injected bandwidth at that knee — the footprint cost is sublinear in effort</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Separability vs sender effort</h2>
+    <p class="sub">Area under the ROC curve for a threshold on each receiver observable, against the duty-0 (silent) baseline. 0.5 = indistinguishable, 1.0 = perfect.</p>
+    <div class="legend">
+      <span><i class="a0"></i> Pythia action-0 rate</span>
+      <span><i class="ipc"></i> Receiver IPC</span>
+      <span><i class="thr"></i> usable threshold (0.90)</span>
+    </div>
+    <div class="chartbox"><svg id="svgA" viewBox="0 0 720 340" role="img" aria-label="Separability AUC versus sender duty"></svg></div>
+  </div>
+
+  <div class="panel">
+    <h2>What that effort costs — sender's injected bandwidth</h2>
+    <p class="sub">Attacker-core DRAM requests per megacycle during the transmission window. The footprint falls much more slowly than the duty: cutting effort buys only a little quiet.</p>
+    <div class="chartbox"><svg id="svgB" viewBox="0 0 720 300" role="img" aria-label="Injected bandwidth versus sender duty"></svg></div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>What it means</h3>
+      <p>The channel is <b>cheap to run</b>. An attacker need not flood continuously: driving memory just 6–10% of the time still delivers a clean channel.</p>
+      <p>A receiver that reads <b>Pythia's learned policy</b> (how often it chooses not to prefetch) beats one reading raw IPC by a wide margin at low effort — AUC 0.99 vs 0.91 at 6% duty, and 0.95 vs 0.80 at 3%. The prefetcher's adaptation is the more sensitive antenna.</p>
+    </div>
+    <div class="note">
+      <h3>The honest caveat</h3>
+      <p>Low duty does <b>not</b> mean a small footprint. Injected bandwidth is sublinear in duty: at 60% duty the sender still emits 97% of full bandwidth, and even at the 6% knee it emits 56%.</p>
+      <p>So the stealth win is on the <b>time-active</b> axis, not yet the <b>bandwidth</b> axis. Whether that residual footprint hides among benign programs is exactly the Step 4 question.</p>
+    </div>
+  </div>
+
+  <p class="foot">
+    Receiver = core 0 (429.mcf, Pythia/Scooby L2). Sender = core 1 (470.lbm), gated at the named duty.
+    8 duty levels · 5M warmup + 15M instr each · epoch 10k cyc · duty-0 baseline shared from Step 1 (10,884 epochs).
+    Duty = fraction of each 1000-cycle window the sender's memory ops pass. AUC via Mann–Whitney over per-epoch observables.
+    Single-trace sweep (N=1 per level); one receiver workload — see Step 2 for the memory-boundedness dependence.
+  </p>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+const DATA = [
+  {duty:100, ipc:0.9947, a0:0.9961, rpm:17603, frac:1.00, gap:84.8},
+  {duty:60,  ipc:0.9929, a0:0.9964, rpm:17049, frac:0.97, gap:81.3},
+  {duty:40,  ipc:0.9886, a0:0.9965, rpm:16243, frac:0.92, gap:75.4},
+  {duty:25,  ipc:0.9702, a0:0.9942, rpm:12781, frac:0.73, gap:64.6},
+  {duty:15,  ipc:0.9652, a0:0.9941, rpm:12945, frac:0.74, gap:62.9},
+  {duty:10,  ipc:0.9599, a0:0.9947, rpm:12363, frac:0.70, gap:60.9},
+  {duty:6,   ipc:0.9093, a0:0.9882, rpm:9872,  frac:0.56, gap:48.2},
+  {duty:3,   ipc:0.8037, a0:0.9490, rpm:5936,  frac:0.34, gap:28.1},
+];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const tip = document.getElementById('tip');
+const lx0=Math.log10(3), lx1=Math.log10(100);
+const xpos=(d,L,R)=> L + (Math.log10(d)-lx0)/(lx1-lx0)*(R-L);
+
+function showTip(e, html){ tip.innerHTML=html; tip.style.opacity=1;
+  let x=e.clientX+14, y=e.clientY+14;
+  if(x+180>innerWidth) x=e.clientX-180; if(y+90>innerHeight) y=e.clientY-90;
+  tip.style.left=x+'px'; tip.style.top=y+'px'; }
+function hideTip(){ tip.style.opacity=0; }
+
+function panelA(){
+  const svg=document.getElementById('svgA');
+  const W=720,H=340,L=52,R=694,T=24,B=286;
+  const yMin=0.5,yMax=1.0;
+  const yp=v=> B-(v-yMin)/(yMax-yMin)*(B-T);
+  let s='';
+  // y grid + labels
+  for(let v=0.5; v<=1.0001; v+=0.1){
+    const y=yp(v);
+    s+=`<line class="gl" x1="${L}" y1="${y.toFixed(1)}" x2="${R}" y2="${y.toFixed(1)}"/>`;
+    s+=`<text class="ax" x="${L-8}" y="${(y+3.5).toFixed(1)}" text-anchor="end">${v.toFixed(1)}</text>`;
+  }
+  // usable threshold 0.90
+  const yt=yp(0.90);
+  s+=`<line x1="${L}" y1="${yt.toFixed(1)}" x2="${R}" y2="${yt.toFixed(1)}" stroke="${css('--danger')}" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  s+=`<text class="ax" x="${R}" y="${(yt-6).toFixed(1)}" text-anchor="end" fill="${css('--danger')}">usable 0.90</text>`;
+  // x ticks
+  DATA.forEach(d=>{ const x=xpos(d.duty,L,R);
+    s+=`<text class="ax" x="${x.toFixed(1)}" y="${B+18}" text-anchor="middle">${d.duty}</text>`; });
+  s+=`<text class="axttl" x="${(L+R)/2}" y="${B+40}" text-anchor="middle">sender duty — % of time transmitting (log)</text>`;
+  s+=`<text class="axttl" transform="translate(14 ${(T+B)/2}) rotate(-90)" text-anchor="middle">separability (AUC)</text>`;
+  // knee band at duty 6
+  const kx=xpos(6,L,R);
+  s+=`<line x1="${kx.toFixed(1)}" y1="${T}" x2="${kx.toFixed(1)}" y2="${B}" stroke="${css('--knee')}" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>`;
+  s+=`<text class="ax" x="${(kx+5).toFixed(1)}" y="${T+12}" fill="${css('--knee')}">IPC knee</text>`;
+  // line builder
+  const line=(key,color)=>{ let p=''; DATA.forEach((d,i)=>{ const x=xpos(d.duty,L,R), y=yp(d[key]);
+      p+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' '; }); return `<path d="${p}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>`; };
+  s+=line('a0',css('--accent-2'));
+  s+=line('ipc',css('--accent'));
+  // markers (a0 = square, ipc = circle) + hit targets
+  DATA.forEach(d=>{ const x=xpos(d.duty,L,R);
+    const ya=yp(d.a0), yi=yp(d.ipc);
+    s+=`<rect x="${(x-4).toFixed(1)}" y="${(ya-4).toFixed(1)}" width="8" height="8" fill="${css('--surface')}" stroke="${css('--accent-2')}" stroke-width="2"/>`;
+    s+=`<circle cx="${x.toFixed(1)}" cy="${yi.toFixed(1)}" r="4.5" fill="${css('--surface')}" stroke="${css('--accent')}" stroke-width="2"/>`;
+    s+=`<rect class="hit" data-duty="${d.duty}" x="${(x-16).toFixed(1)}" y="${T}" width="32" height="${B-T}" fill="transparent"/>`;
+  });
+  // direct labels at the endpoints
+  s+=`<text x="${(xpos(3,L,R)-6).toFixed(1)}" y="${(yp(0.949)-8).toFixed(1)}" text-anchor="end" fill="${css('--accent-2')}" font-size="11">action-0</text>`;
+  s+=`<text x="${(xpos(3,L,R)-6).toFixed(1)}" y="${(yp(0.804)+14).toFixed(1)}" text-anchor="end" fill="${css('--accent')}" font-size="11">IPC</text>`;
+  svg.innerHTML=s;
+  svg.querySelectorAll('.hit').forEach(h=>{
+    const d=DATA.find(x=>x.duty==h.dataset.duty);
+    h.addEventListener('mousemove',e=>showTip(e,
+      `<b>duty ${d.duty}%</b><div class="row"><span>action-0 AUC</span><span>${d.a0.toFixed(3)}</span></div>`+
+      `<div class="row"><span>IPC AUC</span><span>${d.ipc.toFixed(3)}</span></div>`+
+      `<div class="row"><span>IPC gap</span><span>${d.gap.toFixed(0)}%</span></div>`));
+    h.addEventListener('mouseleave',hideTip);
+  });
+}
+
+function panelB(){
+  const svg=document.getElementById('svgB');
+  const W=720,H=300,L=58,R=694,T=20,B=250;
+  const yMax=18000;
+  const yp=v=> B-v/yMax*(B-T);
+  let s='';
+  for(let v=0; v<=yMax; v+=6000){ const y=yp(v);
+    s+=`<line class="gl" x1="${L}" y1="${y.toFixed(1)}" x2="${R}" y2="${y.toFixed(1)}"/>`;
+    s+=`<text class="ax" x="${L-8}" y="${(y+3.5).toFixed(1)}" text-anchor="end">${(v/1000).toFixed(0)}k</text>`;
+  }
+  DATA.forEach(d=>{ const x=xpos(d.duty,L,R);
+    s+=`<text class="ax" x="${x.toFixed(1)}" y="${B+18}" text-anchor="middle">${d.duty}</text>`; });
+  s+=`<text class="axttl" x="${(L+R)/2}" y="${B+40}" text-anchor="middle">sender duty — % of time transmitting (log)</text>`;
+  s+=`<text class="axttl" transform="translate(16 ${(T+B)/2}) rotate(-90)" text-anchor="middle">injected DRAM req / Mcycle</text>`;
+  // area under footprint
+  let area='', ln='';
+  DATA.forEach((d,i)=>{ const x=xpos(d.duty,L,R), y=yp(d.rpm);
+    ln+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';
+  });
+  const xL=xpos(DATA[DATA.length-1].duty,L,R), xR=xpos(DATA[0].duty,L,R);
+  area=`M${xL.toFixed(1)} ${B} `+DATA.slice().reverse().map((d,i)=>`${(i?'L':'L')}${xpos(d.duty,L,R).toFixed(1)} ${yp(d.rpm).toFixed(1)} `).join('')+`L${xR.toFixed(1)} ${B} Z`;
+  s+=`<path d="${area}" fill="${css('--accent')}" opacity="0.12"/>`;
+  s+=`<path d="${ln}" fill="none" stroke="${css('--accent')}" stroke-width="2.5" stroke-linejoin="round"/>`;
+  // knee marker
+  const kx=xpos(6,L,R);
+  s+=`<line x1="${kx.toFixed(1)}" y1="${T}" x2="${kx.toFixed(1)}" y2="${B}" stroke="${css('--knee')}" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>`;
+  DATA.forEach(d=>{ const x=xpos(d.duty,L,R), y=yp(d.rpm);
+    s+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" fill="${css('--surface')}" stroke="${css('--accent')}" stroke-width="2"/>`;
+    // label footprint fraction above each point
+    s+=`<text class="ax" x="${x.toFixed(1)}" y="${(y-10).toFixed(1)}" text-anchor="middle" fill="${css('--ink-2')}">${d.frac.toFixed(2)}×</text>`;
+    s+=`<rect class="hit" data-duty="${d.duty}" x="${(x-16).toFixed(1)}" y="${T}" width="32" height="${B-T}" fill="transparent"/>`;
+  });
+  svg.innerHTML=s;
+  svg.querySelectorAll('.hit').forEach(h=>{
+    const d=DATA.find(x=>x.duty==h.dataset.duty);
+    h.addEventListener('mousemove',e=>showTip(e,
+      `<b>duty ${d.duty}%</b><div class="row"><span>injected</span><span>${d.rpm.toLocaleString()}/Mcyc</span></div>`+
+      `<div class="row"><span>of full</span><span>${d.frac.toFixed(2)}×</span></div>`));
+    h.addEventListener('mouseleave',hideTip);
+  });
+}
+panelA(); panelB();
+const mq=matchMedia('(prefers-color-scheme:dark)');
+mq.addEventListener&&mq.addEventListener('change',()=>{panelA();panelB();});
+</script>

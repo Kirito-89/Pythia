@@ -1,0 +1,211 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Pythia Channel Capacity</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Layout: Step-2 result page — verdict header, stat row, two swept-curve panels (BER, capacity), workload-contrast strip, method. Shares the Step-1 token system. */
+  :root{
+    --bg:#f6f7f9; --surface:#ffffff; --surface-2:#eef1f5;
+    --ink:#121821; --muted:#5a6675; --faint:#8a94a3; --grid:#e3e8ee; --hair:#d7dde5;
+    --rep:#ea580c;   /* reported, N=3, 50M warmup, 256-bit payload (conservative) */
+    --sho:#2563eb;   /* short transmission, fresh threshold (achievable upper line) */
+    --bad:#b91c1c; --good:#15803d;
+    --sans:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+    --r:12px;
+  }
+  :root:not([data-theme="light"]){ color-scheme:light; }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+    --bg:#0c1016; --surface:#141a22; --surface-2:#1b222c; --ink:#e7edf4; --muted:#9aa6b4;
+    --faint:#6b7684; --grid:#232c37; --hair:#2b3542; --rep:#fb923c; --sho:#60a5fa; --bad:#f87171; --good:#4ade80; color-scheme:dark; } }
+  :root[data-theme="dark"]{
+    --bg:#0c1016; --surface:#141a22; --surface-2:#1b222c; --ink:#e7edf4; --muted:#9aa6b4;
+    --faint:#6b7684; --grid:#232c37; --hair:#2b3542; --rep:#fb923c; --sho:#60a5fa; --bad:#f87171; --good:#4ade80; color-scheme:dark; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.5;
+       padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px));}
+  .wrap{max-width:960px;margin:0 auto;padding-block:40px 56px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+  h1{font-size:clamp(27px,4.6vw,38px);font-weight:700;letter-spacing:-.02em;margin:0;text-wrap:balance}
+  h1 .n{font-family:var(--mono);color:var(--rep)}
+  .sub{color:var(--muted);max-width:64ch;margin:14px 0 0;font-size:15.5px}
+  .sub b{color:var(--ink);font-weight:600}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:30px 0 8px}
+  .tile{background:var(--surface);border:1px solid var(--hair);border-radius:var(--r);padding:16px}
+  .tile .k{font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+  .tile .v{font-family:var(--mono);font-weight:600;font-size:23px;margin-top:8px;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .tile .u{font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .tile .n{font-size:12px;color:var(--faint);margin-top:3px}
+  section{background:var(--surface);border:1px solid var(--hair);border-radius:var(--r);padding:22px 22px 18px;margin-top:20px}
+  .h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+  h2{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .tag{font-family:var(--mono);font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+  .lede{color:var(--muted);font-size:14px;margin:6px 0 10px;max-width:72ch}
+  .lede b{color:var(--ink);font-weight:600}
+  .legend{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:2px 0 2px;font-size:13px}
+  .legend .it{display:flex;align-items:center;gap:7px;color:var(--muted)}
+  .legend b{color:var(--ink);font-weight:600}
+  .ln{width:22px;height:0;border-top-width:2px;border-top-style:solid;flex:none}
+  .chart{width:100%;overflow-x:auto}
+  svg{display:block;width:100%;height:auto}
+  .axis{fill:var(--muted);font-family:var(--mono);font-size:11px}
+  .axt{fill:var(--faint);font-family:var(--mono);font-size:10.5px}
+  .contrast{display:flex;gap:14px;flex-wrap:wrap}
+  .cbox{flex:1;min-width:230px;background:var(--surface-2);border-radius:10px;padding:14px 16px}
+  .cbox .t{font-family:var(--mono);font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .cbox .big{font-family:var(--mono);font-size:21px;font-weight:600;margin-top:6px}
+  .cbox .d{font-size:13px;color:var(--muted);margin-top:4px}
+  .method{font-size:13.5px;color:var(--muted);columns:2;column-gap:28px;margin-top:6px}
+  .method p{margin:0 0 10px;break-inside:avoid}
+  .method b{color:var(--ink);font-weight:600}
+  .method code{font-family:var(--mono);font-size:12px;background:var(--surface-2);padding:1px 5px;border-radius:4px;color:var(--ink)}
+  footer{margin-top:20px;font-size:12.5px;color:var(--faint);font-family:var(--mono);line-height:1.6}
+  .tip{position:fixed;pointer-events:none;opacity:0;transform:translate(-50%,-100%);background:var(--ink);color:var(--bg);
+       font-family:var(--mono);font-size:11.5px;padding:6px 9px;border-radius:7px;white-space:nowrap;z-index:20;transition:opacity .1s}
+  @media (max-width:640px){ .tiles{grid-template-columns:repeat(2,1fr)} .method{columns:1} }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Step 2 · Covert-channel capacity &amp; BER · ChampSim + Pythia</p>
+  <h1>Peak capacity ≈ <span class="n">2.3 bits</span> per megacycle.</h1>
+  <p class="sub">Sending a 256-bit sequence as duty-100/duty-0 symbols through the stock 4-level DRAM
+  bandwidth bucket, decoded from the receiver's own IPC. Sweeping the symbol period traces the classic
+  BER–throughput trade-off: an error-free regime for long symbols, a knee near
+  <b>12k receiver instructions</b>, and collapse to noise by 6k. Receiver = mcf + Pythia; N = 3 seeds per point.</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">Peak capacity</div><div class="v">2.32 <span class="u">b/Mcyc</span></div><div class="n">at T = 12k instr</div></div>
+    <div class="tile"><div class="k">≈ bit rate @ 4 GHz</div><div class="v">9.3 <span class="u">kbit/s</span></div><div class="n">assumed clock, stated</div></div>
+    <div class="tile"><div class="k">Error-free down to</div><div class="v">T = 25k</div><div class="n">BER 1.7% ± 1.6</div></div>
+    <div class="tile"><div class="k">Channel collapses</div><div class="v">T ≤ 6k</div><div class="n">BER 40% → noise</div></div>
+  </div>
+
+  <section>
+    <div class="h"><h2>Bit error rate vs symbol period</h2><span class="tag">N = 3 · error bars = ±1 sd</span></div>
+    <p class="lede">Shorter symbols pack more bits per second but give the receiver's IPC less time to settle,
+    so errors climb. Over a <b>short transmission with a fresh threshold</b> the channel is error-free down to
+    T = 12k; over a <b>long 256-bit payload</b> a static threshold drifts with mcf's own phases and BER rises
+    earlier — the gap is decoder tracking, not the channel.</p>
+    <div class="legend">
+      <span class="it"><span class="ln" style="border-color:var(--rep)"></span><b>Long payload</b>&nbsp;(256-bit, 50M warmup)</span>
+      <span class="it"><span class="ln" style="border-color:var(--sho);border-top-style:dashed"></span><b>Short / fresh threshold</b>&nbsp;(128-bit, 20M)</span>
+    </div>
+    <div class="chart"><svg id="ber" viewBox="0 0 900 320" preserveAspectRatio="xMidYMid meet" role="img"
+      aria-label="Bit error rate rises as symbol period shrinks, from near zero above 25k instructions to about 0.4 at 6k."></svg></div>
+  </section>
+
+  <section>
+    <div class="h"><h2>Usable capacity vs symbol period</h2><span class="tag">BSC capacity = rate × (1 − H(BER))</span></div>
+    <p class="lede">Capacity is the error-corrected information rate. It rises with symbol rate until errors
+    overwhelm the gain, peaking near the knee, then collapses. The long-payload curve peaks at
+    <b>~2.3 b/Mcyc</b>; a drift-tracking decoder (the short-transmission line) reaches <b>~5.9</b>, so 2.3 is a
+    conservative floor for this mechanism.</p>
+    <div class="legend">
+      <span class="it"><span class="ln" style="border-color:var(--rep)"></span><b>Long payload</b>&nbsp;— reported</span>
+      <span class="it"><span class="ln" style="border-color:var(--sho);border-top-style:dashed"></span><b>Short / fresh</b>&nbsp;— achievable</span>
+    </div>
+    <div class="chart"><svg id="cap" viewBox="0 0 900 320" preserveAspectRatio="xMidYMid meet" role="img"
+      aria-label="Usable capacity peaks near a symbol period of 12k instructions and falls off on both sides."></svg></div>
+  </section>
+
+  <section>
+    <div class="h"><h2>The channel is workload-dependent, not universal</h2><span class="tag">contrasting receiver</span></div>
+    <p class="lede">The same sender against a <b>compute-bound</b> receiver (gcc, IPC ≈ 1.4, ~70× faster than mcf)
+    barely moves the observable — the existence test itself fails. The channel's strength tracks how
+    memory-bound the receiver is.</p>
+    <div class="contrast">
+      <div class="cbox"><div class="t">mcf receiver — memory-bound</div><div class="big" style="color:var(--good)">AUC 0.995</div><div class="d">channel strong · 2.3 b/Mcyc</div></div>
+      <div class="cbox"><div class="t">gcc receiver — compute-bound</div><div class="big" style="color:var(--bad)">AUC 0.526</div><div class="d">channel absent · d′ 0.14, 4.9% IPC gap</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="h"><h2>Method &amp; honest limits</h2><span class="tag">read before citing</span></div>
+    <div class="method">
+      <p><b>Signalling.</b> One schedule row per symbol period T (receiver instructions): duty 100 for a 1,
+      duty 0 for a 0. A 16-bit <code>1010…</code> preamble calibrates the decode threshold; payload bits are a
+      seeded PN sequence. No new simulator code — same gate as Step 1.</p>
+      <p><b>Decoder.</b> Bin the receiver's own IPC per symbol, threshold against the preamble levels
+      (IPC low ⇒ bit 1). BER over payload only. It's a simple fixed-threshold decoder; an adaptive one would
+      recover more (see the short-transmission line).</p>
+      <p><b>Capacity.</b> Binary-symmetric-channel capacity, rate × (1 − H(BER)), in bits per megacycle. The
+      bits/sec figure assumes a 4 GHz core and is labelled as such — the simulator is frequency-agnostic.</p>
+      <p><b>Clock assumption.</b> The schedule is receiver-instruction-clocked, so sender and receiver share an
+      instruction-count clock. Fine for a cooperating-sender upper bound; a real channel needs a shared wall clock.</p>
+      <p><b>Stock channel.</b> Unmodified 4-quartile bucket, recomputed every 256 cycles. Low capacity is the
+      honest property of real Pythia, reported as a result, not engineered away.</p>
+      <p><b>Scope.</b> One receiver (mcf) + one contrast (gcc), one sender pattern, N = 3 seeds at the reported
+      periods (N = 1 coarse sweep to locate the range). Stealth/detectability is Step 4.</p>
+    </div>
+    <footer>reported: 50M warmup · 256-bit payload · ε = ±1 sd over seeds {1,2,3} · steering_epoch 5k cyc · bw epoch 256 cyc &nbsp;|&nbsp; coarse: 20M warmup · 128-bit · single run</footer>
+  </section>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const REP=[ {T:25000,ber:0.017,bs:0.016,cap:2.230,cs:0.507},
+            {T:12000,ber:0.137,bs:0.003,cap:2.317,cs:0.063},
+            {T:9000, ber:0.223,bs:0.031,cap:1.753,cs:0.481},
+            {T:7000, ber:0.326,bs:0.023,cap:0.856,cs:0.259},
+            {T:6000, ber:0.404,bs:0.014,cap:0.295,cs:0.093} ];
+const SHO=[ {T:200000,ber:0.000,cap:0.305},{T:100000,ber:0.000,cap:0.630},
+            {T:50000,ber:0.000,cap:1.296},{T:25000,ber:0.000,cap:2.733},
+            {T:12000,ber:0.000,cap:5.872},{T:6000,ber:0.258,cap:1.921} ];
+const Tmin=6000, Tmax=200000, L=Math.log, lo=L(Tmin), hi=L(Tmax);
+const TICKS=[6000,12000,25000,50000,100000,200000];
+const tip=document.getElementById('tip');
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function showTip(e,h){tip.innerHTML=h;tip.style.left=e.clientX+'px';tip.style.top=(e.clientY-10)+'px';tip.style.opacity=1;}
+function fmtT(t){return t>=1000?(t/1000)+'k':t;}
+
+function draw(id, field, errField, ymax, ylab, fmt){
+  const svg=document.getElementById(id), W=900,H=320, mL=58,mR=16,mT=18,mB=46;
+  const pw=W-mL-mR, ph=H-mT-mB;
+  const x=t=>mL+pw*(L(t)-lo)/(hi-lo), y=v=>mT+ph*(1-Math.min(v,ymax)/ymax);
+  let el="";
+  // y grid
+  const yt=5; for(let i=0;i<=yt;i++){ const v=ymax*i/yt, yy=y(v);
+    el+=`<line x1="${mL}" y1="${yy.toFixed(1)}" x2="${W-mR}" y2="${yy.toFixed(1)}" stroke="${css('--grid')}" stroke-width="1"/>`;
+    el+=`<text class="axis" x="${mL-9}" y="${(yy+3).toFixed(1)}" text-anchor="end">${fmt(v)}</text>`; }
+  // x ticks
+  TICKS.forEach(t=>{ const xx=x(t);
+    el+=`<text class="axis" x="${xx.toFixed(1)}" y="${H-mB+18}" text-anchor="middle">${fmtT(t)}</text>`; });
+  el+=`<text class="axt" x="${(mL+pw/2).toFixed(0)}" y="${H-6}" text-anchor="middle">symbol period T — receiver instructions (log)</text>`;
+  el+=`<text class="axt" x="16" y="${(mT+ph/2).toFixed(0)}" transform="rotate(-90 16 ${(mT+ph/2).toFixed(0)})" text-anchor="middle">${ylab}</text>`;
+  // BER reliability band (BER>0.11 unreliable) only on ber chart
+  if(id==='ber'){ const yb=y(0.11);
+    el+=`<rect x="${mL}" y="${mT}" width="${pw}" height="${(yb-mT).toFixed(1)}" fill="${css('--bad')}" opacity="0.05"/>`;
+    el+=`<line x1="${mL}" y1="${yb.toFixed(1)}" x2="${W-mR}" y2="${yb.toFixed(1)}" stroke="${css('--bad')}" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>`;
+    el+=`<text class="axt" x="${W-mR}" y="${(yb-5).toFixed(1)}" text-anchor="end" fill="${css('--bad')}">↑ unreliable</text>`;
+  }
+  function path(data,color,dash){
+    const pts=data.filter(d=>d[field]!=null).sort((a,b)=>a.T-b.T);
+    let d="";
+    pts.forEach((p,i)=>{ d+=(i?'L':'M')+x(p.T).toFixed(1)+','+y(p[field]).toFixed(1); });
+    let s=`<path d="${d}" fill="none" stroke="${color}" stroke-width="2" ${dash?`stroke-dasharray="6 4"`:''}/>`;
+    pts.forEach(p=>{
+      if(errField&&p[errField]!=null){ const y1=y(p[field]+p[errField]),y2=y(Math.max(0,p[field]-p[errField]));
+        s+=`<line x1="${x(p.T).toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x(p.T).toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${color}" stroke-width="1.5"/>`
+          +`<line x1="${(x(p.T)-4).toFixed(1)}" y1="${y1.toFixed(1)}" x2="${(x(p.T)+4).toFixed(1)}" y2="${y1.toFixed(1)}" stroke="${color}" stroke-width="1.5"/>`
+          +`<line x1="${(x(p.T)-4).toFixed(1)}" y1="${y2.toFixed(1)}" x2="${(x(p.T)+4).toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${color}" stroke-width="1.5"/>`;
+      }
+      s+=`<circle class="dot" cx="${x(p.T).toFixed(1)}" cy="${y(p[field]).toFixed(1)}" r="4.5" fill="${color}" stroke="${css('--surface')}" stroke-width="1.5" data-t="${p.T}" data-v="${p[field]}"></circle>`;
+    });
+    return s;
+  }
+  el+=path(SHO,css('--sho'),true);
+  el+=path(REP,css('--rep'),false);
+  svg.innerHTML=el;
+  svg.querySelectorAll('.dot').forEach(c=>{
+    const t=+c.dataset.t, v=+c.dataset.v;
+    const show=e=>showTip(e,`T=${fmtT(t)} instr<br>${ylab.split(' ')[0]}: ${fmt(v)}`);
+    c.addEventListener('mouseenter',show); c.addEventListener('mousemove',show);
+    c.addEventListener('mouseleave',()=>tip.style.opacity=0);
+  });
+}
+function renderAll(){
+  draw('ber','ber','bs',0.5,'bit error rate', v=>v.toFixed(2));
+  draw('cap','cap','cs',6,'capacity (b/Mcyc)', v=>v.toFixed(0));
+}
+renderAll();
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',renderAll);
+new MutationObserver(renderAll).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+</script>

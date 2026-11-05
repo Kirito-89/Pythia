@@ -1,0 +1,6 @@
+T=12000
+payload=1250
+preamble=0
+seed=1
+n_symbols=1250
+measured_instructions=15012000

@@ -1,0 +1,261 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Pythia Covert Channel</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Layout: a single lab-result page — verdict header, stat row, two distribution panels, transmitted-symbol check, method. */
+  :root{
+    --bg:#f6f7f9; --surface:#ffffff; --surface-2:#eef1f5;
+    --ink:#121821; --muted:#5a6675; --faint:#8a94a3; --grid:#e3e8ee; --hair:#d7dde5;
+    --off:#2563eb;   /* class0 — quiet (bit 0) */
+    --on:#ea580c;    /* class1 — pressure (bit 1) */
+    --good:#15803d;
+    --sans:"IBM Plex Sans",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+    --r:12px;
+  }
+  :root:not([data-theme="light"]){ color-scheme:light; }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0c1016; --surface:#141a22; --surface-2:#1b222c;
+      --ink:#e7edf4; --muted:#9aa6b4; --faint:#6b7684; --grid:#232c37; --hair:#2b3542;
+      --off:#60a5fa; --on:#fb923c; --good:#4ade80; color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0c1016; --surface:#141a22; --surface-2:#1b222c;
+    --ink:#e7edf4; --muted:#9aa6b4; --faint:#6b7684; --grid:#232c37; --hair:#2b3542;
+    --off:#60a5fa; --on:#fb923c; --good:#4ade80; color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       -webkit-font-smoothing:antialiased;line-height:1.5;
+       padding-left:max(18px,env(safe-area-inset-left,0px));
+       padding-right:max(18px,env(safe-area-inset-right,0px));}
+  .wrap{max-width:960px;margin:0 auto;padding-block:40px 56px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+           color:var(--muted);margin:0 0 10px}
+  h1{font-size:clamp(28px,5vw,40px);font-weight:700;letter-spacing:-.02em;margin:0;text-wrap:balance}
+  h1 .verdict{color:var(--good)}
+  .sub{color:var(--muted);max-width:62ch;margin:14px 0 0;font-size:15.5px}
+  .sub b{color:var(--ink);font-weight:600}
+
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:30px 0 8px}
+  .tile{background:var(--surface);border:1px solid var(--hair);border-radius:var(--r);padding:16px 16px 14px}
+  .tile .k{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .tile .v{font-family:var(--mono);font-weight:600;font-size:26px;margin-top:8px;letter-spacing:-.01em;
+           font-variant-numeric:tabular-nums}
+  .tile .n{font-size:12.5px;color:var(--faint);margin-top:3px}
+
+  section{background:var(--surface);border:1px solid var(--hair);border-radius:var(--r);
+          padding:22px 22px 18px;margin-top:20px}
+  .h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+  h2{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .tag{font-family:var(--mono);font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  .lede{color:var(--muted);font-size:14px;margin:6px 0 14px;max-width:70ch}
+  .lede b{color:var(--ink);font-weight:600}
+
+  .legend{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:2px 0 6px;font-size:13px}
+  .legend .it{display:flex;align-items:center;gap:7px;color:var(--muted)}
+  .sw{width:13px;height:13px;border-radius:3px;flex:none}
+  .legend b{color:var(--ink);font-weight:600}
+
+  .chart{width:100%;overflow-x:auto}
+  svg{display:block;width:100%;height:auto}
+  .axis{fill:var(--muted);font-family:var(--mono);font-size:11px}
+  .axis-t{fill:var(--faint);font-family:var(--mono);font-size:10.5px}
+  .bar{transition:opacity .08s}
+  .meanlab{font-family:var(--mono);font-size:11px;font-weight:600}
+
+  .bw{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px}
+  .bwcol .lab{font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:8px;display:flex;
+              justify-content:space-between}
+  .bwrow{display:flex;align-items:center;gap:8px;margin:5px 0;font-family:var(--mono);font-size:12px}
+  .bwrow .q{width:48px;color:var(--faint)}
+  .bwtrack{flex:1;height:14px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+  .bwfill{height:100%;border-radius:4px}
+  .bwrow .p{width:42px;text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
+
+  .method{font-size:13.5px;color:var(--muted);columns:2;column-gap:28px;margin-top:6px}
+  .method p{margin:0 0 10px;break-inside:avoid}
+  .method b{color:var(--ink);font-weight:600}
+  .method code{font-family:var(--mono);font-size:12px;background:var(--surface-2);padding:1px 5px;border-radius:4px;color:var(--ink)}
+  footer{margin-top:22px;font-size:12.5px;color:var(--faint);font-family:var(--mono);line-height:1.6}
+
+  .tip{position:fixed;pointer-events:none;opacity:0;transform:translate(-50%,-100%);
+       background:var(--ink);color:var(--bg);font-family:var(--mono);font-size:11.5px;
+       padding:6px 9px;border-radius:7px;white-space:nowrap;z-index:20;transition:opacity .1s}
+  @media (max-width:640px){
+    .tiles{grid-template-columns:repeat(2,1fr)}
+    .bw{grid-template-columns:1fr}
+    .method{columns:1}
+  }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Step 1 · Covert-channel existence test · ChampSim + Pythia</p>
+  <h1>The covert channel <span class="verdict">exists.</span></h1>
+  <p class="sub">A co-running sender that only modulates <b>shared DRAM bandwidth</b> — no access to the
+  victim's learner — drives a Pythia prefetcher's observable into two almost disjoint classes.
+  Sender fixed to <b>duty 100 ("always 1")</b> vs <b>duty 0 ("always 0")</b>; receiver is an
+  mcf workload with online Pythia on a two-core machine. One run per class.</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">IPC gap</div><div class="v">84.8%</div><div class="n">mean, off vs on</div></div>
+    <div class="tile"><div class="k">Separability</div><div class="v">0.995</div><div class="n">AUC on per-epoch IPC</div></div>
+    <div class="tile"><div class="k">Action-0 AUC</div><div class="v">0.996</div><div class="n">the "it's Pythia" signal</div></div>
+    <div class="tile"><div class="k">Paired bins</div><div class="v">73/73</div><div class="n">slowed · median −85.7%</div></div>
+  </div>
+
+  <section>
+    <div class="h"><h2>Receiver IPC per epoch</h2><span class="tag">Headline observable · d′ = 2.99</span></div>
+    <p class="lede">Each bar is the count of 10k-cycle epochs at a given receiver IPC. The two classes
+    barely touch: under pressure the receiver sits near <b>0.02</b>, quiet it sits near <b>0.13</b>.
+    A single IPC threshold recovers the sent bit with AUC 0.995.</p>
+    <div class="legend">
+      <span class="it"><span class="sw" style="background:var(--on)"></span><b>Pressure</b>&nbsp;— duty 100, bit 1</span>
+      <span class="it"><span class="sw" style="background:var(--off)"></span><b>Quiet</b>&nbsp;— duty 0, bit 0</span>
+    </div>
+    <div class="chart"><svg id="ipc" viewBox="0 0 900 300" preserveAspectRatio="xMidYMid meet" role="img"
+      aria-label="Histogram of receiver IPC per epoch; pressure clusters near 0.02, quiet near 0.13, almost no overlap."></svg></div>
+  </section>
+
+  <section>
+    <div class="h"><h2>Action-0 rate per epoch</h2><span class="tag">Corroboration · d′ = 3.92</span></div>
+    <p class="lede">Action 0 is Pythia's <b>no-prefetch</b> decision. Pressure flips the learned policy from
+    ~6% no-prefetch to ~64%. This is the evidence the bit rides <b>through</b> the learned prefetcher,
+    not merely around it via raw contention.</p>
+    <div class="legend">
+      <span class="it"><span class="sw" style="background:var(--on)"></span><b>Pressure</b>&nbsp;— mean 0.64</span>
+      <span class="it"><span class="sw" style="background:var(--off)"></span><b>Quiet</b>&nbsp;— mean 0.06</span>
+    </div>
+    <div class="chart"><svg id="a0" viewBox="0 0 900 300" preserveAspectRatio="xMidYMid meet" role="img"
+      aria-label="Histogram of Pythia action-0 (no-prefetch) rate; quiet clusters near 0.05, pressure spreads above 0.5."></svg></div>
+  </section>
+
+  <section>
+    <div class="h"><h2>Did the sender actually move the channel?</h2><span class="tag">Transmitted-symbol check</span></div>
+    <p class="lede">The mechanism is the stock 4-level DRAM bandwidth bucket. Pressure sent
+    <b>398,376</b> DRAM requests into the shared controller; quiet sent <b>0</b> (gate closed). The bucket the
+    receiver's Pythia computes its reward against shifts accordingly.</p>
+    <div class="bw">
+      <div class="bwcol">
+        <div class="lab"><span>Receiver-seen bucket mix — PRESSURE</span><span>bit 1</span></div>
+        <div id="bwon"></div>
+      </div>
+      <div class="bwcol">
+        <div class="lab"><span>Receiver-seen bucket mix — QUIET</span><span>bit 0</span></div>
+        <div id="bwoff"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="h"><h2>Method &amp; honest limits</h2><span class="tag">read before citing</span></div>
+    <div class="method">
+      <p><b>Harness.</b> Two-core ChampSim, <code>perceptron-no-multi-no-ship-2core</code>, stock
+      <code>pythia.ini</code>. Core 0 = receiver (<code>429.mcf</code>, Pythia on). Core 1 = sender
+      (<code>470.lbm</code>), gated at the trace level.</p>
+      <p><b>Sender.</b> Open-loop fixed schedule — no victim-IPC oracle. Duty 100 passes the sender's full
+      memory stream; duty 0 strips its memory ops. Same build, traces, and schedule across classes; only
+      the duty differs, and core count is pinned at 2.</p>
+      <p><b>Observables are self-read.</b> IPC and action-0 are the receiver reading <b>its own</b> counters —
+      legitimate for a cooperating covert receiver, so the steering phase's oracle caveat does not apply here.</p>
+      <p><b>Stock channel.</b> The DRAM bucket is the unmodified 4-quartile signal recomputed each bandwidth
+      epoch. Low channel capacity is a property of real Pythia, not a strawman — that is the point.</p>
+      <p><b>Phase confound removed.</b> Beyond the marginal histograms, a paired comparison bins both runs by
+      receiver instruction: 73/73 bins slow under pressure (median −85.7%), so the shift is the sender, not
+      mcf's own phases.</p>
+      <p><b>Scope.</b> Single run per class (Step-1 pilot; separation is immediate and needs no repeats).
+      5M warmup + 15M measured. Capacity, BER, and error bars are Step 2.</p>
+    </div>
+    <footer>sender DRAM requests&nbsp; on&nbsp;398,376&nbsp;·&nbsp;off&nbsp;0 &nbsp;|&nbsp; epochs&nbsp; on&nbsp;71,779&nbsp;·&nbsp;off&nbsp;10,884 &nbsp;|&nbsp; onset transient 0.5M instr dropped</footer>
+  </section>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script>
+const D = {
+  ipc:{ on:[7270,41620,18958,2941,379,56,45,34,29,26,21,30,23,18,29,25,27,19,22,21,17,12,9,7,6,10,15,110],
+        off:[0,0,1,37,209,435,472,312,244,662,1169,1620,1656,1305,946,604,368,239,145,62,55,44,25,15,9,20,11,219],
+        lo:0, hi:0.30, onMean:0.0202, offMean:0.1333, unit:"IPC", fmt:v=>v.toFixed(3) },
+  a0:{  on:[102,118,193,267,468,596,758,1248,1724,1806,2254,2392,2982,2230,4335,3582,4326,4426,4657,4609,4599,5359,4707,3893,3703,2695,2181,1569],
+        off:[3980,2933,2048,1044,517,214,93,35,17,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        lo:0, hi:1.0, onMean:0.636, offMean:0.062, unit:"action-0 rate", fmt:v=>v.toFixed(2) }
+};
+const tip = document.getElementById('tip');
+function showTip(e,html){ tip.innerHTML=html; tip.style.left=e.clientX+'px'; tip.style.top=(e.clientY-10)+'px'; tip.style.opacity=1; }
+function hideTip(){ tip.style.opacity=0; }
+
+function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+function drawHist(id, d){
+  const svg=document.getElementById(id);
+  const W=900,H=300, mL=46,mR=14,mT=16,mB=42;
+  const n=d.on.length, step=(d.hi-d.lo)/n;
+  const plotW=W-mL-mR, plotH=H-mT-mB;
+  const maxC=Math.max(...d.on,...d.off);
+  const bw=plotW/n;
+  const x=i=>mL+i*bw, y=c=>mT+plotH*(1-c/maxC);
+  const NS="http://www.w3.org/2000/svg";
+  let el="";
+  // y gridlines + labels (counts, log-ish: 0, max/2, max)
+  const ticks=[0,0.25,0.5,0.75,1].map(f=>Math.round(maxC*f));
+  ticks.forEach(t=>{ const yy=y(t);
+    el+=`<line x1="${mL}" y1="${yy.toFixed(1)}" x2="${W-mR}" y2="${yy.toFixed(1)}" stroke="${css('--grid')}" stroke-width="1"/>`;
+    el+=`<text class="axis" x="${mL-8}" y="${(yy+3).toFixed(1)}" text-anchor="end">${t>=1000?(t/1000).toFixed(t>=10000?0:1)+'k':t}</text>`;
+  });
+  // bars: off (quiet) and on (pressure), 2px gap, overlapping gets a ring via opacity
+  function bars(arr,color,op){
+    let s="";
+    for(let i=0;i<n;i++){ if(!arr[i])continue;
+      const h=mT+plotH-y(arr[i]); const xi=x(i)+1.2, w=Math.max(0.5,bw-2.4);
+      const lab=`${d.fmt(d.lo+i*step)}–${d.fmt(d.lo+(i+1)*step)}`;
+      s+=`<rect class="bar" x="${xi.toFixed(1)}" y="${y(arr[i]).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${color}" fill-opacity="${op}" data-l="${lab}" data-c="${arr[i]}"></rect>`;
+    }
+    return s;
+  }
+  el+=bars(d.off,css('--off'),0.92);
+  el+=bars(d.on,css('--on'),0.78);
+  // x axis labels
+  for(let i=0;i<=n;i+=Math.ceil(n/6)){ const xx=x(i);
+    el+=`<text class="axis" x="${xx.toFixed(1)}" y="${H-mB+18}" text-anchor="middle">${d.fmt(d.lo+i*step)}</text>`;
+  }
+  el+=`<text class="axis-t" x="${(mL+plotW/2).toFixed(0)}" y="${H-6}" text-anchor="middle">${d.unit} ${d.hi<d.lo+n*step?'':''}(x-axis clipped at ${d.fmt(d.hi)})</text>`;
+  el+=`<text class="axis-t" x="${mL-36}" y="${mT+6}" transform="rotate(-90 ${mL-36} ${mT+6})" text-anchor="end">epochs</text>`;
+  // mean markers
+  function mean(v,color,txt,above){ const px=mL+plotW*((v-d.lo)/(d.hi-d.lo));
+    if(px<mL||px>W-mR)return"";
+    return `<line x1="${px.toFixed(1)}" y1="${mT}" x2="${px.toFixed(1)}" y2="${mT+plotH}" stroke="${color}" stroke-width="2" stroke-dasharray="4 3"/>`
+      +`<text class="meanlab" x="${px.toFixed(1)}" y="${above?mT+12:mT+plotH-4}" fill="${color}" text-anchor="${px>W/2?'end':'start'}" dx="${px>W/2?-5:5}">${txt}</text>`;
+  }
+  el+=mean(d.offMean,css('--off'),'quiet '+d.fmt(d.offMean),true);
+  el+=mean(d.onMean,css('--on'),'pressure '+d.fmt(d.onMean),false);
+  svg.innerHTML=el;
+  svg.querySelectorAll('.bar').forEach(r=>{
+    r.addEventListener('mouseenter',e=>{ r.style.opacity=.6;
+      showTip(e,`${r.dataset.l}<br>${(+r.dataset.c).toLocaleString()} epochs`); });
+    r.addEventListener('mousemove',e=>showTip(e,`${r.dataset.l}<br>${(+r.dataset.c).toLocaleString()} epochs`));
+    r.addEventListener('mouseleave',()=>{ r.style.opacity=1; hideTip(); });
+  });
+}
+
+function drawBW(id,mix,color){
+  const host=document.getElementById(id);
+  let s="";
+  mix.forEach((p,i)=>{ s+=`<div class="bwrow"><span class="q">lvl ${i}</span>`
+    +`<span class="bwtrack"><span class="bwfill" style="width:${(p*100).toFixed(0)}%;background:${color};opacity:${0.45+0.18*i}"></span></span>`
+    +`<span class="p">${(p*100).toFixed(0)}%</span></div>`; });
+  host.innerHTML=s;
+}
+
+function renderAll(){
+  drawHist('ipc',D.ipc);
+  drawHist('a0',D.a0);
+  drawBW('bwon',[0.18,0.38,0.30,0.14],css('--on'));
+  drawBW('bwoff',[0.71,0.28,0.02,0.00],css('--off'));
+}
+renderAll();
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',renderAll);
+new MutationObserver(renderAll).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+</script>
